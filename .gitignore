@@ -7,6 +7,10 @@ __pycache__/
 target_points.npy
 target_points.csv
 debug_target_points.png
+drone_motion.gif
+drone_trajectories.csv
+drone_trajectories.npy
+test.png
 
 .DS_Store
 __pycache__/

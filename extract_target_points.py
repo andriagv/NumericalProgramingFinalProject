@@ -77,7 +77,8 @@ def _sample_points_inside_mask(
     min_border_dist: float = 3.0,
     topk_candidates: int = 5000,
     seed: int | None = None,
-    fixed_points: np.ndarray | None = None,  
+    fixed_points: np.ndarray | None = None,
+    min_spacing: float = 0.0,
 ) -> np.ndarray:
     """
     Sample points from the *interior* (white) region of `binary` (255=foreground),
@@ -124,6 +125,21 @@ def _sample_points_inside_mask(
     fixed = np.zeros((0, 2), dtype=np.int32)
     if fixed_points is not None and len(fixed_points) > 0:
         fixed = np.asarray(fixed_points, dtype=np.int32).reshape(-1, 2)
+        if min_spacing > 0 and len(fixed) > 0:
+            # Filter fixed points to satisfy min spacing between themselves
+            kept: list[tuple[int, int]] = []
+            min2 = float(min_spacing) ** 2
+            for fx, fy in fixed.tolist():
+                ok = True
+                for kx, ky in kept:
+                    dx = float(fx - kx)
+                    dy = float(fy - ky)
+                    if dx * dx + dy * dy < min2:
+                        ok = False
+                        break
+                if ok:
+                    kept.append((int(fx), int(fy)))
+            fixed = np.array(kept, dtype=np.int32) if kept else np.zeros((0, 2), dtype=np.int32)
 
     if len(fixed) > 0:
         for (fx, fy) in fixed:
@@ -140,13 +156,20 @@ def _sample_points_inside_mask(
         dy = coords[:, 1] - coords[first, 1]
         min_d2 = np.minimum(min_d2, dx * dx + dy * dy)
 
+    min_spacing2 = float(min_spacing) ** 2
     for _ in range(len(selected), n):
         min_d = np.sqrt(min_d2)
         score = dvals * (min_d + 1e-6)
         score[selected] = -1.0  # never re-pick
 
+        if min_spacing > 0:
+            score[min_d2 < min_spacing2] = -1.0
+
         best = int(np.argmax(score))
         if score[best] <= 0:
+            # If min-spacing is enabled, we stop when nothing satisfies it.
+            if min_spacing > 0:
+                break
             remaining = np.where(score >= 0)[0]
             if len(remaining) == 0:
                 break
@@ -174,7 +197,8 @@ def _sample_points_inside_mask(
             if len(uniq) >= n:
                 break
         pts = np.array(uniq, dtype=np.int32) if uniq else np.zeros((0, 2), dtype=np.int32)
-    if len(pts) < n and len(pts) > 0:
+    # Do not pad when enforcing spacing.
+    if min_spacing <= 0 and len(pts) < n and len(pts) > 0:
         reps = n - len(pts)
         pts = np.vstack([pts, pts[:reps]])
     return pts
@@ -265,6 +289,7 @@ def _sample_points_from_coords(
     *,
     fixed_points: np.ndarray | None = None,
     seed: int | None = None,
+    min_spacing: float = 0.0,
 ) -> np.ndarray:
     """
     Greedy maximin sampling from a discrete set of (x,y) coordinates.
@@ -283,6 +308,20 @@ def _sample_points_from_coords(
         for x, y in np.asarray(fixed_points, dtype=np.int32).reshape(-1, 2).tolist():
             fixed.append((int(x), int(y)))
         fixed = list(dict.fromkeys(fixed))  # preserve order, unique
+        if min_spacing > 0 and fixed:
+            kept: list[tuple[int, int]] = []
+            min2 = float(min_spacing) ** 2
+            for fx, fy in fixed:
+                ok = True
+                for kx, ky in kept:
+                    dx = float(fx - kx)
+                    dy = float(fy - ky)
+                    if dx * dx + dy * dy < min2:
+                        ok = False
+                        break
+                if ok:
+                    kept.append((fx, fy))
+            fixed = kept
 
     selected_idx: list[int] = []
     if fixed:
@@ -303,11 +342,16 @@ def _sample_points_from_coords(
         dy = coords[:, 1] - coords[si, 1]
         min_d2 = np.minimum(min_d2, dx * dx + dy * dy)
 
+    min_spacing2 = float(min_spacing) ** 2
     while len(selected_idx) < n:
         score = min_d2.copy()
         score[selected_idx] = -1.0
+        if min_spacing > 0:
+            score[min_d2 < min_spacing2] = -1.0
         best = int(np.argmax(score))
         if score[best] <= 0:
+            if min_spacing > 0:
+                break
             remaining = np.where(score >= 0)[0]
             if len(remaining) == 0:
                 break
@@ -333,7 +377,7 @@ def _sample_points_from_coords(
                 break
         pts = np.array(uniq, dtype=np.int32)
 
-    if len(pts) < n and len(pts) > 0:
+    if min_spacing <= 0 and len(pts) < n and len(pts) > 0:
         reps = n - len(pts)
         pts = np.vstack([pts, pts[:reps]])
 
@@ -406,6 +450,7 @@ def extract_target_points_interior(
     min_per_component: int = 8,
     use_extremes: bool = True,
     extreme_directions: int = 8,
+    min_target_spacing: float = 0.0,
 ) -> ExtractionResult:
     _, binary = load_and_binarize(image_path, threshold=threshold)
     num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats((binary > 0).astype(np.uint8), 8)
@@ -515,13 +560,14 @@ def extract_target_points_interior(
             topk_candidates=topk_candidates,
             seed=seed,
             fixed_points=fixed,
+            min_spacing=min_target_spacing,
         )
         all_pts.append(pts_c)
 
     pts = np.vstack(all_pts) if all_pts else np.zeros((0, 2), dtype=np.int32)
     if len(pts) > n_drones:
         pts = pts[:n_drones]
-    elif len(pts) < n_drones and len(pts) > 0:
+    elif min_target_spacing <= 0 and len(pts) < n_drones and len(pts) > 0:
         reps = n_drones - len(pts)
         pts = np.vstack([pts, pts[:reps]])
     return ExtractionResult(target_points=pts.astype(np.int32), binary=binary, skeleton=None)
@@ -534,6 +580,7 @@ def extract_target_points_skeleton(
     *,
     min_per_component: int = 8,
     seed: int | None = None,
+    min_target_spacing: float = 0.0,
 ) -> ExtractionResult:
     """
     Place target points *exactly* on the medial axis (skeleton) of each connected component.
@@ -622,15 +669,32 @@ def extract_target_points_skeleton(
         fixed = eps
         if fixed is not None and len(fixed) > max(0, k - 1):
             fixed = fixed[: max(0, k - 1)]
-        pts_c = _sample_points_from_coords(coords, k, fixed_points=fixed, seed=seed)
+        pts_c = _sample_points_from_coords(
+            coords,
+            k,
+            fixed_points=fixed,
+            seed=seed,
+            min_spacing=min_target_spacing,
+        )
         all_pts.append(pts_c)
 
     pts = np.vstack(all_pts) if all_pts else np.zeros((0, 2), dtype=np.int32)
     if len(pts) > n_drones:
         pts = pts[:n_drones]
-    elif len(pts) < n_drones and len(pts) > 0:
+    elif min_target_spacing <= 0 and len(pts) < n_drones and len(pts) > 0:
         reps = n_drones - len(pts)
         pts = np.vstack([pts, pts[:reps]])
+
+    if min_target_spacing > 0:
+        ys, xs = np.nonzero(skeleton_overlay > 0)
+        all_coords = np.column_stack([xs, ys]).astype(np.int32)
+        pts = _sample_points_from_coords(
+            all_coords,
+            n_drones,
+            fixed_points=pts,
+            seed=seed,
+            min_spacing=min_target_spacing,
+        )
 
     return ExtractionResult(target_points=pts.astype(np.int32), binary=binary, skeleton=skeleton_overlay)
 
@@ -700,6 +764,12 @@ def main() -> None:
     )
     parser.add_argument("--seed", type=int, default=None, help="(interior mode) RNG seed for tie-breaking")
     parser.add_argument(
+        "--min-target-spacing",
+        type=float,
+        default=0.0,
+        help="Minimum distance between target points in pixels (0 disables).",
+    )
+    parser.add_argument(
         "--min-per-component",
         type=int,
         default=8,
@@ -732,6 +802,7 @@ def main() -> None:
             threshold=args.threshold,
             min_per_component=args.min_per_component,
             seed=args.seed,
+            min_target_spacing=args.min_target_spacing,
         )
     else:
         res = extract_target_points_interior(
@@ -744,6 +815,7 @@ def main() -> None:
             min_per_component=args.min_per_component,
             use_extremes=not args.no_extremes,
             extreme_directions=args.extreme_dirs,
+            min_target_spacing=args.min_target_spacing,
         )
     npy_path, csv_path, debug_path = save_outputs(
         out_dir=args.out_dir,

@@ -49,6 +49,20 @@ Medial axis (skeleton) mode (points lie on the centerline):
 python3 extract_target_points.py --image name.png --n 50 --mode skeleton --min-per-component 8 --debug-png
 ```
 
+## Drone simulation (IVP + animation)
+
+Run a simple IVP model (attraction + damping + collision avoidance) and animate:
+
+```bash
+python3 simulate_drones.py --targets target_points.csv --initial hline_below --offset 50 --t-end 20 --steps 200 --show
+```
+
+Save a GIF + trajectories:
+
+```bash
+python3 simulate_drones.py --targets target_points.csv --initial hline_below --offset 50 --t-end 20 --steps 200 --save-gif --save-traj-csv --save-traj-npy
+```
+
 ## Outputs
 
 - `target_points.npy`
