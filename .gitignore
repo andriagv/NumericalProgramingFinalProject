@@ -3,14 +3,11 @@ __pycache__/
 *.pyc
 .mplconfig/
 
-# Generated outputs
-target_points.npy
-target_points.csv
-debug_target_points.png
-drone_motion.gif
-drone_trajectories.csv
-drone_trajectories.npy
-test.png
+# Generated outputs (Task 1)
+task1/outputs/
+task1/report/*.aux
+task1/report/*.log
+task1/report/*.out
 
 .DS_Store
 __pycache__/

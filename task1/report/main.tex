@@ -1,0 +1,217 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+\title{Numerical Programming Final Project (Task 1)\\Static Formation on a Handwritten Input}
+\author{Student: \textbf{(fill name)} \quad Course: Numerical Programming \quad KIU}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Task statement}
+\textbf{Input:} an image of a handwritten name (at least 8 characters), number of drones $N$, and a still initial configuration.\\
+\textbf{Goal:} a drone swarm must move from the still initial formation and form the handwritten name.\\
+\textbf{Output:} trajectory of each drone and visualization whose input is the trajectory.
+
+\section{Overview of the implemented pipeline}
+The implementation is split into three parts:
+\begin{itemize}
+  \item \textbf{Target point extraction} from \texttt{task1/inputs/name.png}: produces $N$ target points in pixel coordinates $(x,y)$ saved as \texttt{task1/outputs/target\_points.csv} and \texttt{task1/outputs/target\_points.npy}.
+  \item \textbf{Trajectory generation} (two alternative methods):
+  \begin{enumerate}
+    \item \textbf{BVP via shooting} (per-drone boundary value targeting) in \texttt{task1/simulate\_drones.py}.
+    \item \textbf{Trajectory Optimization} (direct transcription + soft collision penalty) in \texttt{task1/optimal\_trajectories.py}.
+  \end{enumerate}
+  \item \textbf{Visualization}: static trajectory plot and an animation (GIF or on-screen) showing drones moving toward the targets.
+\end{itemize}
+
+\section{Input data and preprocessing}
+\subsection{Binarization}
+The handwritten name image is loaded and binarized using OpenCV:
+\[
+\text{binary}(x,y)=
+\begin{cases}
+255 & \text{foreground (ink)}\\
+0 & \text{background}
+\end{cases}
+\]
+using \texttt{THRESH\_BINARY\_INV}, so the ink becomes white (255). This makes subsequent distance transform and skeletonization operations straightforward.
+
+\subsection{Target points}
+The final targets are a set of $N$ pixel coordinates:
+\[
+T_i = (x_i^{\star}, y_i^{\star}), \quad i=1,\dots,N,
+\]
+stored in \texttt{target\_points.csv} (header: \texttt{x,y}) and \texttt{target\_points.npy}.
+
+Three extraction modes were used during development:
+\begin{itemize}
+  \item \textbf{Contour sampling} (points on the boundary).
+  \item \textbf{Interior sampling} using distance transform (points inside strokes, away from boundaries).
+  \item \textbf{Skeleton (medial axis)} sampling via Zhang--Suen thinning (points lie on the centerline of the letters).
+\end{itemize}
+To reduce congestion and improve readability, a \textbf{minimum target spacing} can be enforced.
+
+\paragraph{Optional debug figure.}
+If generated, \texttt{debug\_target\_points.png} overlays the selected target points on the skeleton or mask.
+
+% \begin{figure}[h]
+% \centering
+% \includegraphics[width=0.85\linewidth]{../outputs/debug_target_points.png}
+% \caption{Extracted target points (debug visualization).}
+% \end{figure}
+
+\section{Mathematical models}
+All models are implemented in 2D image coordinates (origin at top-left, $y$ increases downward), consistent with plotting settings.
+
+\subsection{State definition}
+For drone $i$:
+\[
+x_i(t)\in\mathbb{R}^2,\quad v_i(t)\in\mathbb{R}^2.
+\]
+
+\subsection{BVP model (via shooting)}
+The project slides also allow BVP formulations:
+\[
+x_i(0)=x_{i,0},\qquad x_i(T)=T_i.
+\]
+In this project, a practical BVP solver is implemented using \textbf{shooting}:
+\begin{itemize}
+  \item unknowns: initial velocity $v_i(0)$ for each drone,
+  \item integrate the (single-drone) second-order ODE from $t=0$ to $t=T$,
+  \item adjust $v_i(0)$ (root finding / least squares) until $x_i(T)\approx T_i$.
+\end{itemize}
+
+\textbf{Important limitation:} the shooting implementation solves drones \emph{independently} (no inter-drone coupling). Therefore it is excellent for hitting targets, but it does not guarantee collision-free motion.
+
+\subsection{Trajectory Optimization (direct transcription)}
+An alternative approach is implemented in \texttt{optimal\_trajectories.py}. The optimization variables are the discrete positions
+\[
+P_i^k \approx x_i(t_k),\quad k=0,\dots,K-1.
+\]
+The objective contains:
+\begin{itemize}
+  \item velocity smoothness: $\sum_k \|P^{k+1}-P^k\|^2$,
+  \item acceleration smoothness: $\sum_k \|P^{k+2}-2P^{k+1}+P^k\|^2$,
+  \item goal term: $\|P^{K-1}-T\|^2$,
+  \item collision penalty (soft constraint): hinge-squared on pairwise distances smaller than $R_{\mathrm{safe}}$.
+\end{itemize}
+The solver uses gradient descent on this objective.
+
+\section{Numerical methods}
+\subsection{Shooting for BVP}
+For each drone, a nonlinear system is solved in the unknown initial velocity. Two modes exist:
+\begin{itemize}
+  \item \textbf{Position-only}: solve $F(v_0)=x(T;v_0)-T=0$ via root finding.
+  \item \textbf{Position + final-velocity damping}: solve in least-squares sense using residual
+  \[
+  r(v_0)=\big[x(T;v_0)-T,\; w_v\,v(T;v_0)\big],
+  \]
+  which reduces end oscillations by encouraging $v(T)\approx 0$.
+\end{itemize}
+
+\subsection{Trajectory optimization}
+The optimization uses fixed-step gradient descent with learning rate \texttt{--lr} and number of iterations \texttt{--iters}. Collision penalties can be computed every $s$ frames (\texttt{--collision-stride}) to trade accuracy for speed.
+
+\section{Initialization and assignment}
+\subsection{Initial formations}
+The initial configuration is a still formation such as:
+\begin{itemize}
+  \item a horizontal line below the name (\texttt{hline\_below}),
+  \item a horizontal line matching each target's $x$ coordinate (\texttt{hline\_match\_targets\_x}),
+  \item two horizontal lines below (\texttt{two\_hlines\_below}).
+\end{itemize}
+Minimum spacing between drones in the initial formation is enforced to prevent immediate collisions.
+
+\subsection{Drone-to-target assignment}
+In the implemented Task 1 setup, drone $i$ is assigned to target $T_i$ (row-wise indexing in \texttt{target\_points.csv}).
+During development, sorting target points (e.g., by $x$ or by $y$) was used to reduce crossing trajectories.
+
+\section{Reproducibility (commands)}
+All experiments are reproducible from the project root.
+
+\subsection{Extract targets (example)}
+\begin{lstlisting}
+python3 task1/extract_target_points.py --n 100 --mode skeleton \
+  --min-target-spacing 5 --debug-png
+\end{lstlisting}
+
+\subsection{BVP shooting (accurate target hitting)}
+\begin{lstlisting}
+python3 task1/simulate_drones.py \
+  --bvp-match-final-velocity --bvp-final-velocity-weight 3.0 \
+  --targets task1/outputs/target_points.csv --bg-image task1/inputs/name.png \
+  --initial hline_below --offset 50 \
+  --k-p 2.0 --k-d 2.5 --t-end 20 --steps 200 --show
+\end{lstlisting}
+
+\subsection{Trajectory Optimization (direct transcription)}
+\begin{lstlisting}
+python3 task1/optimal_trajectories.py \
+  --targets task1/outputs/target_points.csv --bg-image task1/inputs/name.png \
+  --initial hline_below --offset 50 --init-min-spacing 25 \
+  --k-steps 80 --iters 80 --lr 1e-4 \
+  --r-safe 10 --w-col 50 --show
+\end{lstlisting}
+
+\section{Validation and test cases}
+\subsection{Metrics}
+Two practical metrics were used:
+\begin{itemize}
+  \item \textbf{Target accuracy}: $\|x_i(T)-T_i\|$ (mean/max over drones).
+  \item \textbf{Safety}: minimum pairwise distance $\min_{i<j,t}\|x_i(t)-x_j(t)\|$ and/or collision count for a chosen threshold.
+\end{itemize}
+
+\subsection{Expected behavior}
+\begin{itemize}
+  \item \textbf{BVP shooting} should hit targets very well, but may allow path crossings because inter-drone coupling is not modeled.
+  \item \textbf{Trajectory Optimization} can trade off smoothness vs.\ collision avoidance via weights; it is slower but often yields more controlled behavior.
+\end{itemize}
+
+\subsection{Limitations}
+\begin{itemize}
+  \item \textbf{BVP shooting limitation}: independent drones $\Rightarrow$ no collision-free guarantee.
+  \item \textbf{Trajectory Optimization}: sensitive to hyperparameters (learning rate, weights); may require tuning per scene.
+\end{itemize}
+
+\section{AI usage disclosure}
+This project was developed with AI assistance (ChatGPT) used for:
+\begin{itemize}
+  \item explaining BVP and shooting concepts,
+  \item proposing model/parameter adjustments,
+  \item helping implement and debug Python code, CLI arguments, and visualization.
+\end{itemize}
+All final code and results were verified by running the scripts locally and inspecting outputs.
+
+\section*{Files included in the submission}
+\begin{itemize}
+  \item Code: \texttt{task1/extract\_target\_points.py}, \texttt{task1/simulate\_drones.py}, \texttt{task1/optimal\_trajectories.py}, \texttt{task1/sort\_target\_points.py}
+  \item Input: \texttt{task1/inputs/name.png}
+  \item Generated data (reproducible): files in \texttt{task1/outputs/} (targets, trajectories, plots, animations)
+  \item This report: \texttt{task1/report/main.tex}
+\end{itemize}
+
+\end{document}
+
