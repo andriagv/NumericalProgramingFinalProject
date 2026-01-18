@@ -95,6 +95,24 @@ python3 task1/optimal_trajectories.py --k-steps 80 --iters 80 --lr 1e-4 --r-safe
 - `task1/outputs/target_points.csv`
 - `task1/outputs/debug_target_points.png` (only if you pass `--debug-png`)
 
+## Task 1: preview (generated)
+
+Input (handwritten name):
+
+![Task 1 input](task1/media/name.png)
+
+Extracted target points (debug):
+
+![Task 1 target points](task1/media/debug_target_points.png)
+
+Trajectories:
+
+![Task 1 trajectories](task1/media/drone_trajectories.png)
+
+Animation:
+
+![Task 1 animation](task1/media/drone_motion.gif)
+
 ## Task 2 (high level) — Transition to "Happy New Year!"
 
 - **Start**: Task 1 final formation (`task1/outputs/target_points.csv`)
