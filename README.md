@@ -2,7 +2,7 @@
 
 This repo is organized by tasks:
 - `task1/` — Task 1 (static formation on a handwritten input)
-- `task2/` — placeholder (not started)
+- `task2/` — Task 2 (transition to greeting: "Happy New Year!")
 - `task3/` — placeholder (not started)
 
 ## Task 1 (high level)
@@ -22,33 +22,33 @@ This repo is organized by tasks:
 From the project root:
 
 ```bash
-python3 task1/extract_target_points.py --n 50 --mode interior --debug-png
+python3 task1/extract_target_points.py --n 100 --mode interior --debug-png
 ```
 
 Optional:
 
 ```bash
-python3 task1/extract_target_points.py --n 50 --mode interior --show
+python3 task1/extract_target_points.py --n 100 --mode interior --show
 ```
 
 Point size tweaks:
 
 ```bash
-python3 task1/extract_target_points.py --n 50 --mode interior --min-border-dist 6 --debug-png --debug-point-radius 4
-python3 task1/extract_target_points.py --n 50 --mode interior --show --show-point-size 90
+python3 task1/extract_target_points.py --n 100 --mode interior --min-border-dist 6 --debug-png --debug-point-radius 4
+python3 task1/extract_target_points.py --n 100 --mode interior --show --show-point-size 90
 ```
 
 Better readability per letter (recommended):
 
 ```bash
-python3 task1/extract_target_points.py --n 50 --mode interior --min-per-component 8 --debug-png
-python3 task1/extract_target_points.py --n 50 --mode interior --extreme-dirs 8 --debug-png
+python3 task1/extract_target_points.py --n 100 --mode interior --min-per-component 8 --debug-png
+python3 task1/extract_target_points.py --n 100 --mode interior --extreme-dirs 8 --debug-png
 ```
 
 Medial axis (skeleton) mode (points lie on the centerline):
 
 ```bash
-python3 task1/extract_target_points.py --n 50 --mode skeleton --min-per-component 8 --debug-png
+python3 task1/extract_target_points.py --n 100 --mode skeleton --min-per-component 8 --debug-png
 ```
 
 ## Drone simulation (BVP shooting + animation)

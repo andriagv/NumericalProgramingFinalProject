@@ -745,7 +745,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Extract equally-spaced target points along text contours.")
     parser.add_argument("--image", default=default_image, help="Path to input image (e.g. name.png)")
-    parser.add_argument("--n", type=int, default=500, help="Number of target points (drones)")
+    parser.add_argument("--n", type=int, default=100, help="Number of target points (drones)")
     parser.add_argument("--threshold", type=int, default=127, help="Binary threshold (0..255)")
     parser.add_argument("--out-dir", default=default_out_dir, help="Output directory for target_points.* files")
     parser.add_argument(
