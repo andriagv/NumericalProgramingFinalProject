@@ -95,3 +95,58 @@ python3 task1/optimal_trajectories.py --k-steps 80 --iters 80 --lr 1e-4 --r-safe
 - `task1/outputs/target_points.csv`
 - `task1/outputs/debug_target_points.png` (only if you pass `--debug-png`)
 
+## Task 2 (high level) — Transition to "Happy New Year!"
+
+- **Start**: Task 1 final formation (`task1/outputs/target_points.csv`)
+- **Goal**: greeting target points extracted from `task2/inputs/greeting.png`
+- **Trajectory generator**: `task2/transition.py` (BVP solved via shooting)
+- **Validation**: optional closest-approach collision diagnostic (`--collision-report`)
+
+### Task 2: run
+
+Generate the greeting image:
+
+```bash
+python3 task2/generate_greeting_image.py --out task2/inputs/greeting.png
+```
+
+Extract greeting target points (use the same `--n` as Task 1):
+
+```bash
+python3 task1/extract_target_points.py \
+  --image task2/inputs/greeting.png \
+  --n 100 --mode skeleton --min-target-spacing 5 \
+  --out-dir task2/outputs --debug-png
+```
+
+Generate transition trajectories + GIF:
+
+```bash
+python3 task2/transition.py \
+  --start task1/outputs/target_points.csv \
+  --targets task2/outputs/target_points.csv \
+  --bg-target task2/inputs/greeting.png \
+  --bvp-match-final-velocity --bvp-final-velocity-weight 3.0 \
+  --k-p 2.0 --k-d 2.5 \
+  --t-end 20 --steps 200 \
+  --collision-report --collision-threshold 12 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot
+```
+
+### Task 2: preview (generated)
+
+Greeting image:
+
+![Task 2 greeting](task2/media/greeting.png)
+
+Extracted greeting target points (debug):
+
+![Task 2 greeting target points](task2/media/debug_target_points.png)
+
+Transition trajectories:
+
+![Task 2 transition trajectories](task2/media/transition_trajectories.png)
+
+Transition animation:
+
+![Task 2 transition animation](task2/media/transition_motion.gif)
