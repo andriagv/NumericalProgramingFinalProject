@@ -8,6 +8,13 @@ task1/outputs/
 task1/report/*.aux
 task1/report/*.log
 task1/report/*.out
+*.synctex.gz
+
+# Generated outputs (Task 2)
+task2/outputs/
+task2/report/*.aux
+task2/report/*.log
+task2/report/*.out
 
 .DS_Store
 __pycache__/
