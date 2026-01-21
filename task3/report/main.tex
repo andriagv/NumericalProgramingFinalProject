@@ -36,7 +36,7 @@
 \section{Overview}
 Task 3 is implemented in \texttt{task3/dynamic\_tracking.py}. The key idea is:
 \begin{itemize}
-  \item Extract the moving object's silhouette from each video frame (green-screen segmentation).
+  \item Extract the moving object's silhouette from each video frame (multiple segmentation options).
   \item Compute the silhouette \textbf{boundary/contour}.
   \item Sample $N$ points on the contour at \textbf{equal arc-length spacing}.
   \item Maintain a \textbf{stable correspondence} so each drone stays attached to a particular contour point as the object moves.
@@ -56,7 +56,7 @@ We use:
 \begin{lstlisting}
 task3/video.mp4
 \end{lstlisting}
-The video contains a dark silhouette on a bright green background, which makes segmentation robust.
+The video contains a dark silhouette on a bright green background, which makes the green-screen segmentation robust, but other segmenters are supported as well.
 
 \section{Mathematical model}
 \subsection{State}
@@ -84,13 +84,13 @@ also checking the reversed order (to handle orientation flips).
 
 \section{Numerical methods}
 \subsection{Segmentation}
-We segment the silhouette using HSV thresholding for the green background:
+We provide multiple segmentation methods:
 \begin{itemize}
-  \item mask\_green = \texttt{inRange(HSV, green\_low, green\_high)}
-  \item silhouette = \texttt{NOT(mask\_green)}
-  \item Morphological open/close removes small artifacts.
+  \item \textbf{greenscreen}: HSV thresholding for green background.
+  \item \textbf{mog2}: background subtraction (MOG2) for generic videos.
+  \item \textbf{edges}: Canny edges + contour fill.
 \end{itemize}
-We also ignore a small bottom strip (\texttt{--ignore-bottom-frac}) to avoid spurious contours.
+All methods apply morphological cleanup and ignore a small bottom strip (\texttt{--ignore-bottom-frac}) to avoid spurious contours.
 
 \subsection{High-detail contour extraction}
 To increase boundary precision, we extract contours on an upscaled mask:
@@ -127,8 +127,8 @@ python3 task3/dynamic_tracking.py \
   --controller direct \
   --video-step 1 \
   --contour-upscale 3.0 --contour-smooth 9 \
-  --hide-targets \
-  --save-gif --gif-fps 30 \
+  --segmenter greenscreen \
+  --save-gif --save-traj-csv --save-traj-npy --gif-fps 30 \
   --output-gif task3/outputs/task3_contour_direct_hi_with_video.gif
 \end{lstlisting}
 
@@ -139,8 +139,9 @@ python3 task3/dynamic_tracking.py \
   --controller direct \
   --video-step 1 \
   --contour-upscale 3.0 --contour-smooth 9 \
+  --segmenter greenscreen \
   --no-bg --drone-color blue \
-  --save-gif --gif-fps 30 \
+  --save-gif --save-traj-csv --save-traj-npy --gif-fps 30 \
   --output-gif task3/outputs/task3_contour_direct_hi_drones_only_blue.gif
 \end{lstlisting}
 
@@ -150,6 +151,8 @@ Generated files (reproducible):
   \item \texttt{task3/outputs/task3\_contour\_direct\_hi\_with\_video.gif}
   \item \texttt{task3/outputs/task3\_contour\_direct\_hi\_drones\_only.gif}
   \item \texttt{task3/outputs/task3\_contour\_direct\_hi\_drones\_only\_blue.gif}
+  \item \texttt{task3/outputs/task3\_trajectories.csv}
+  \item \texttt{task3/outputs/task3\_trajectories.npy}
 \end{itemize}
 
 \section{Validation and limitations}
@@ -163,7 +166,7 @@ In \texttt{direct} mode, this holds by construction because drones are set to th
 
 \subsection{Limitations}
 \begin{itemize}
-  \item Contour tracking assumes a clean silhouette; complex backgrounds would require a stronger segmentation model.
+  \item Contour tracking quality depends on segmentation; complex backgrounds may require tuning the selected segmenter.
   \item Using dynamics (instead of direct tracking) introduces lag and can violate the strict boundary constraint.
   \item With fixed $N$, the maximum geometric detail is limited by the number of sampled points on the contour.
 \end{itemize}

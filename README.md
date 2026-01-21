@@ -162,7 +162,8 @@ Transition animation:
 
 ```bash
 python3 task3/dynamic_tracking.py \
-  --save-debug --save-traj-csv --save-traj-npy --save-gif
+  --segmenter greenscreen \
+  --save-traj-csv --save-traj-npy --save-gif
 ```
 
 ### Task 3: report (LaTeX)
