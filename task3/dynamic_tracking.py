@@ -24,15 +24,8 @@ def load_points(path: str) -> np.ndarray:
     return pts
 
 
-def segment_silhouette(frame_bgr: np.ndarray, *, ignore_bottom_frac: float = 0.08) -> np.ndarray:
-    """
-    Segment a dark silhouette on a green background.
-    Returns mask uint8 {0,255}.
-    """
-    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
-    green = cv2.inRange(hsv, (35, 60, 60), (90, 255, 255))
-    mask = cv2.bitwise_not(green)
-
+def _mask_to_largest_filled(mask_u8: np.ndarray, *, ignore_bottom_frac: float) -> np.ndarray:
+    mask = (mask_u8 > 0).astype(np.uint8) * 255
     k = np.ones((5, 5), np.uint8)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=2)
@@ -51,6 +44,45 @@ def segment_silhouette(frame_bgr: np.ndarray, *, ignore_bottom_frac: float = 0.0
     out = np.zeros_like(mask)
     cv2.drawContours(out, [c], -1, 255, thickness=-1)
     return out
+
+
+def segment_greenscreen(frame_bgr: np.ndarray, *, ignore_bottom_frac: float = 0.08) -> np.ndarray:
+    """
+    Segment a dark silhouette on a green background.
+    Returns mask uint8 {0,255}.
+    """
+    hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+    green = cv2.inRange(hsv, (35, 60, 60), (90, 255, 255))
+    mask = cv2.bitwise_not(green)
+    return _mask_to_largest_filled(mask, ignore_bottom_frac=float(ignore_bottom_frac))
+
+
+def segment_mog2(
+    frame_bgr: np.ndarray,
+    subtractor: cv2.BackgroundSubtractor,
+    *,
+    ignore_bottom_frac: float = 0.08,
+    threshold: int = 200,
+) -> np.ndarray:
+    fg = subtractor.apply(frame_bgr)
+    fg = (fg >= int(threshold)).astype(np.uint8) * 255
+    return _mask_to_largest_filled(fg, ignore_bottom_frac=float(ignore_bottom_frac))
+
+
+def segment_edges(
+    frame_bgr: np.ndarray,
+    *,
+    ignore_bottom_frac: float = 0.08,
+    canny1: int = 60,
+    canny2: int = 150,
+    dilate_iters: int = 1,
+) -> np.ndarray:
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, int(canny1), int(canny2))
+    if int(dilate_iters) > 0:
+        k = np.ones((3, 3), np.uint8)
+        edges = cv2.dilate(edges, k, iterations=int(dilate_iters))
+    return _mask_to_largest_filled(edges, ignore_bottom_frac=float(ignore_bottom_frac))
 
 
 def _extract_largest_contour_points(mask_u8: np.ndarray) -> np.ndarray:
@@ -188,6 +220,15 @@ def _rk4_step(pos: np.ndarray, vel: np.ndarray, *, target_pos: np.ndarray, dt: f
     return pos2, vel2
 
 
+def save_trajectories_csv(path: str, t: np.ndarray, x: np.ndarray, y: np.ndarray) -> None:
+    n, tt = x.shape
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("drone_id,time,x,y\n")
+        for i in range(n):
+            for k in range(tt):
+                f.write(f"{i},{t[k]:.6f},{x[i, k]:.6f},{y[i, k]:.6f}\n")
+
+
 def main() -> None:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     default_video = os.path.join(base_dir, "video.mp4")
@@ -203,6 +244,19 @@ def main() -> None:
     ap.add_argument("--video-step", type=int, default=1)
     ap.add_argument("--transition-seconds", type=float, default=4.0)
     ap.add_argument("--ignore-bottom-frac", type=float, default=0.08)
+    ap.add_argument(
+        "--segmenter",
+        choices=["greenscreen", "mog2", "edges"],
+        default="greenscreen",
+        help="Segmentation method for the moving object.",
+    )
+    ap.add_argument("--mog2-history", type=int, default=200)
+    ap.add_argument("--mog2-var-threshold", type=float, default=16.0)
+    ap.add_argument("--mog2-detect-shadows", action="store_true")
+    ap.add_argument("--mog2-threshold", type=int, default=200, help="Foreground threshold (0..255)")
+    ap.add_argument("--canny1", type=int, default=60)
+    ap.add_argument("--canny2", type=int, default=150)
+    ap.add_argument("--edge-dilate-iters", type=int, default=1)
 
     ap.add_argument("--tracking-mode", choices=["contour"], default="contour")
     ap.add_argument("--contour-upscale", type=float, default=3.0)
@@ -219,6 +273,8 @@ def main() -> None:
     ap.add_argument("--save-gif", action="store_true")
     ap.add_argument("--output-gif", default=None)
     ap.add_argument("--gif-fps", type=int, default=30)
+    ap.add_argument("--save-traj-csv", action="store_true")
+    ap.add_argument("--save-traj-npy", action="store_true")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -240,13 +296,37 @@ def main() -> None:
 
     frames_bgr: list[np.ndarray] = []
     masks_u8: list[np.ndarray] = []
+    subtractor = None
+    if args.segmenter == "mog2":
+        subtractor = cv2.createBackgroundSubtractorMOG2(
+            history=int(args.mog2_history),
+            varThreshold=float(args.mog2_var_threshold),
+            detectShadows=bool(args.mog2_detect_shadows),
+        )
     for idx in range(0, total_frames, step):
         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
         ret, fr = cap.read()
         if not ret:
             continue
         frames_bgr.append(fr)
-        masks_u8.append(segment_silhouette(fr, ignore_bottom_frac=float(args.ignore_bottom_frac)))
+        if args.segmenter == "greenscreen":
+            mask = segment_greenscreen(fr, ignore_bottom_frac=float(args.ignore_bottom_frac))
+        elif args.segmenter == "mog2":
+            mask = segment_mog2(
+                fr,
+                subtractor,
+                ignore_bottom_frac=float(args.ignore_bottom_frac),
+                threshold=int(args.mog2_threshold),
+            )
+        else:
+            mask = segment_edges(
+                fr,
+                ignore_bottom_frac=float(args.ignore_bottom_frac),
+                canny1=int(args.canny1),
+                canny2=int(args.canny2),
+                dilate_iters=int(args.edge_dilate_iters),
+            )
+        masks_u8.append(mask)
     cap.release()
     if not frames_bgr:
         raise RuntimeError("No frames read from video.")
@@ -302,6 +382,32 @@ def main() -> None:
     print(f"Video: {args.video}")
     print(f"FPS: {fps:.3f}, step={step}, dt={dt:.4f}s, sampled_frames={len(frames_bgr)}")
     print(f"N drones: {n}, total steps: {T} (transition={n_trans}, tracking={len(frames_bgr)})")
+    print(f"Segmenter: {args.segmenter}")
+
+    t_eval = np.arange(T, dtype=np.float64) * float(dt)
+    if args.save_traj_csv:
+        out_csv = os.path.join(out_dir, "task3_trajectories.csv")
+        save_trajectories_csv(out_csv, t_eval, x_hist, y_hist)
+        print(f"Saved: {out_csv}")
+    if args.save_traj_npy:
+        out_npy = os.path.join(out_dir, "task3_trajectories.npy")
+        payload = {
+            "time": t_eval,
+            "x": x_hist,
+            "y": y_hist,
+            "start_positions": start,
+            "targets": targets_all,
+            "params": {
+                "segmenter": str(args.segmenter),
+                "controller": str(args.controller),
+                "video_step": int(args.video_step),
+                "transition_seconds": float(args.transition_seconds),
+                "contour_upscale": float(args.contour_upscale),
+                "contour_smooth": int(args.contour_smooth),
+            },
+        }
+        np.save(out_npy, payload, allow_pickle=True)
+        print(f"Saved: {out_npy}")
 
     # Render animation
     _ensure_mpl_configdir_writable()
