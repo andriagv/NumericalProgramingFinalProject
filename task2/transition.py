@@ -30,6 +30,38 @@ def load_points(path: str) -> np.ndarray:
     return pts
 
 
+def _saturate(v: np.ndarray, v_max: float) -> np.ndarray:
+    v = np.asarray(v, dtype=np.float64)
+    vmax = float(v_max)
+    if vmax <= 0 or not np.isfinite(vmax):
+        return v
+    n = np.linalg.norm(v, axis=-1, keepdims=True)
+    scale = np.ones_like(n)
+    mask = n > vmax
+    scale[mask] = vmax / (n[mask] + 1e-12)
+    return v * scale
+
+
+def _repulsive_force(positions: np.ndarray, k_rep: float, r_safe: float) -> np.ndarray:
+    n = len(positions)
+    if n == 0:
+        return np.zeros((0, 2), dtype=np.float64)
+    k = float(k_rep)
+    r = float(r_safe)
+    if k <= 0 or r <= 0:
+        return np.zeros_like(positions, dtype=np.float64)
+    diff = positions[:, None, :] - positions[None, :, :]  # (N,N,2)
+    dist2 = np.sum(diff * diff, axis=2)
+    np.fill_diagonal(dist2, np.inf)
+    mask = dist2 < r * r
+    if not np.any(mask):
+        return np.zeros_like(positions, dtype=np.float64)
+    dist = np.sqrt(dist2 + 1e-12)
+    force = k * diff / (dist[:, :, None] ** 3)
+    force[~mask] = 0.0
+    return np.sum(force, axis=1)
+
+
 def drone_ode_single_second_order(t: float, state: np.ndarray, params: Params, target_xy: np.ndarray) -> np.ndarray:
     x, y, vx, vy = state
     tx, ty = float(target_xy[0]), float(target_xy[1])
@@ -120,6 +152,50 @@ def solve_bvp_shooting_all(
     return x_traj, y_traj
 
 
+def solve_swarm_ivp(
+    *,
+    t_eval: np.ndarray,
+    start_positions: np.ndarray,
+    start_velocities: np.ndarray,
+    targets: np.ndarray,
+    params: Params,
+    rtol: float,
+    atol: float,
+    k_rep: float,
+    r_safe: float,
+    v_max: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    from scipy.integrate import solve_ivp
+
+    t_eval = np.asarray(t_eval, dtype=np.float64)
+    n = len(targets)
+    if n == 0:
+        return np.zeros((0, len(t_eval))), np.zeros((0, len(t_eval)))
+
+    def rhs(_t: float, state: np.ndarray) -> np.ndarray:
+        pos = state[: 2 * n].reshape(n, 2)
+        vel = state[2 * n :].reshape(n, 2)
+        rep = _repulsive_force(pos, k_rep=k_rep, r_safe=r_safe)
+        acc = (params.k_p * (targets - pos) + rep - params.k_d * vel) / params.m
+        xdot = _saturate(vel, v_max)
+        return np.concatenate([xdot.reshape(-1), acc.reshape(-1)])
+
+    y0 = np.concatenate([start_positions.reshape(-1), start_velocities.reshape(-1)])
+    sol = solve_ivp(
+        fun=rhs,
+        t_span=(float(t_eval[0]), float(t_eval[-1])),
+        y0=y0,
+        t_eval=t_eval,
+        method="RK45",
+        rtol=rtol,
+        atol=atol,
+    )
+    pos_hist = sol.y[: 2 * n].reshape(n, 2, len(t_eval))
+    x_traj = pos_hist[:, 0, :]
+    y_traj = pos_hist[:, 1, :]
+    return x_traj, y_traj
+
+
 def save_trajectories_csv(path: str, t: np.ndarray, x: np.ndarray, y: np.ndarray) -> None:
     n, tt = x.shape
     with open(path, "w", encoding="utf-8") as f:
@@ -164,7 +240,9 @@ def main() -> None:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     default_out_dir = os.path.join(base_dir, "outputs")
 
-    ap = argparse.ArgumentParser(description="Task 2: transition from handwritten name to holiday greeting (BVP shooting).")
+    ap = argparse.ArgumentParser(
+        description="Task 2: transition from handwritten name to holiday greeting (BVP shooting or swarm IVP)."
+    )
     ap.add_argument("--start", required=True, help="Start positions (Task 1 final formation), csv/npy (N,2)")
     ap.add_argument("--targets", required=True, help="Target positions for greeting, csv/npy (N,2)")
     ap.add_argument("--bg-target", default=None, help="Optional greeting image to show behind targets")
@@ -178,6 +256,15 @@ def main() -> None:
     ap.add_argument("--m", type=float, default=1.0)
     ap.add_argument("--k-p", type=float, default=2.0)
     ap.add_argument("--k-d", type=float, default=0.5)
+    ap.add_argument(
+        "--model",
+        choices=["swarm", "shooting"],
+        default="swarm",
+        help="swarm=IVP with repulsion; shooting=per-drone BVP (no collision avoidance).",
+    )
+    ap.add_argument("--k-rep", type=float, default=200.0, help="Repulsion gain for swarm model")
+    ap.add_argument("--r-safe", type=float, default=12.0, help="Safety radius for repulsion (pixels)")
+    ap.add_argument("--v-max", type=float, default=1e9, help="Velocity saturation (pixels/sec)")
     ap.add_argument("--bvp-match-final-velocity", action="store_true")
     ap.add_argument("--bvp-final-velocity-weight", type=float, default=1.0)
 
@@ -220,16 +307,31 @@ def main() -> None:
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
 
-    x_traj, y_traj = solve_bvp_shooting_all(
-        t_eval=t_eval,
-        start_positions=start,
-        targets=targets,
-        params=params,
-        rtol=float(args.rtol),
-        atol=float(args.atol),
-        match_final_velocity=bool(args.bvp_match_final_velocity),
-        final_velocity_weight=float(args.bvp_final_velocity_weight),
-    )
+    if args.model == "swarm":
+        v0 = np.zeros_like(start)
+        x_traj, y_traj = solve_swarm_ivp(
+            t_eval=t_eval,
+            start_positions=start,
+            start_velocities=v0,
+            targets=targets,
+            params=params,
+            rtol=float(args.rtol),
+            atol=float(args.atol),
+            k_rep=float(args.k_rep),
+            r_safe=float(args.r_safe),
+            v_max=float(args.v_max),
+        )
+    else:
+        x_traj, y_traj = solve_bvp_shooting_all(
+            t_eval=t_eval,
+            start_positions=start,
+            targets=targets,
+            params=params,
+            rtol=float(args.rtol),
+            atol=float(args.atol),
+            match_final_velocity=bool(args.bvp_match_final_velocity),
+            final_velocity_weight=float(args.bvp_final_velocity_weight),
+        )
 
     final_pos = np.column_stack([x_traj[:, -1], y_traj[:, -1]])
     dist = np.linalg.norm(final_pos - targets, axis=1)
@@ -258,7 +360,8 @@ def main() -> None:
         ax1.plot(x_traj[i], y_traj[i], alpha=0.5, linewidth=0.8)
     ax1.scatter(start[:, 0], start[:, 1], c="green", s=30, label="start (name)", zorder=5)
     ax1.scatter(targets[:, 0], targets[:, 1], c="red", s=50, label="targets (greeting)", zorder=5)
-    ax1.set_title("Task 2 transition trajectories (BVP shooting)")
+    title_suffix = "BVP shooting" if args.model == "shooting" else "swarm IVP + repulsion"
+    ax1.set_title(f"Task 2 transition trajectories ({title_suffix})")
     ax1.set_xlabel("X (pixels)")
     ax1.set_ylabel("Y (pixels)")
     ax1.grid(True, alpha=0.3)
@@ -287,7 +390,7 @@ def main() -> None:
         ax2.set_ylim(h, 0)
     ax2.scatter(targets[:, 0], targets[:, 1], c="red", s=50, label="targets")
     drone_dots = ax2.scatter(start[:, 0], start[:, 1], c="blue", s=30, label="drones")
-    ax2.set_title("Task 2 transition animation")
+    ax2.set_title(f"Task 2 transition animation ({title_suffix})")
     ax2.grid(True, alpha=0.3)
     ax2.set_aspect("equal", adjustable="box")
     if not args.bg_target:

@@ -39,11 +39,7 @@
 The implementation is split into three parts:
 \begin{itemize}
   \item \textbf{Target point extraction} from \texttt{task1/inputs/name.png}: produces $N$ target points in pixel coordinates $(x,y)$ saved as \texttt{task1/outputs/target\_points.csv} and \texttt{task1/outputs/target\_points.npy}.
-  \item \textbf{Trajectory generation} (two alternative methods):
-  \begin{enumerate}
-    \item \textbf{BVP via shooting} (per-drone boundary value targeting) in \texttt{task1/simulate\_drones.py}.
-    \item \textbf{Trajectory Optimization} (direct transcription + soft collision penalty) in \texttt{task1/optimal\_trajectories.py}.
-  \end{enumerate}
+  \item \textbf{Trajectory generation} using \textbf{swarm IVP with repulsion} in \texttt{task1/simulate\_drones.py}.
   \item \textbf{Visualization}: static trajectory plot and an animation (GIF or on-screen) showing drones moving toward the targets.
 \end{itemize}
 
@@ -106,19 +102,14 @@ In this project, a practical BVP solver is implemented using \textbf{shooting}:
 
 \textbf{Important limitation:} the shooting implementation solves drones \emph{independently} (no inter-drone coupling). Therefore it is excellent for hitting targets, but it does not guarantee collision-free motion.
 
-\subsection{Trajectory Optimization (direct transcription)}
-An alternative approach is implemented in \texttt{optimal\_trajectories.py}. The optimization variables are the discrete positions
-\[
-P_i^k \approx x_i(t_k),\quad k=0,\dots,K-1.
-\]
-The objective contains:
-\begin{itemize}
-  \item velocity smoothness: $\sum_k \|P^{k+1}-P^k\|^2$,
-  \item acceleration smoothness: $\sum_k \|P^{k+2}-2P^{k+1}+P^k\|^2$,
-  \item goal term: $\|P^{K-1}-T\|^2$,
-  \item collision penalty (soft constraint): hinge-squared on pairwise distances smaller than $R_{\mathrm{safe}}$.
-\end{itemize}
-The solver uses gradient descent on this objective.
+\subsection{Swarm IVP model with repulsion (collision-free)}
+To enforce collision avoidance we also solve a coupled IVP model for the whole swarm:
+\begin{align}
+\dot{x}_i(t) &= v_i(t),\\
+\dot{v}_i(t) &= \frac{1}{m}\left(k_p\,(T_i-x_i(t)) + \sum_{j\neq i} f_{\mathrm{rep}}(x_i,x_j) - k_d\,v_i(t)\right),
+\end{align}
+where $f_{\mathrm{rep}}$ is an inverse-cube repulsive force active inside a safety radius $R_{\mathrm{safe}}$.
+This model is integrated for all drones together, so interactions are included and collisions are avoided in practice.
 
 \section{Numerical methods}
 \subsection{Shooting for BVP}
@@ -132,8 +123,8 @@ For each drone, a nonlinear system is solved in the unknown initial velocity. Tw
   which reduces end oscillations by encouraging $v(T)\approx 0$.
 \end{itemize}
 
-\subsection{Trajectory optimization}
-The optimization uses fixed-step gradient descent with learning rate \texttt{--lr} and number of iterations \texttt{--iters}. Collision penalties can be computed every $s$ frames (\texttt{--collision-stride}) to trade accuracy for speed.
+\subsection{Swarm IVP integration}
+We integrate the coupled system with \texttt{solve\_ivp} (RK45). Repulsion is computed at each step using the current drone positions, and velocity can be saturated to respect a maximum speed.
 
 \section{Initialization and assignment}
 \subsection{Initial formations}
@@ -158,22 +149,13 @@ python3 task1/extract_target_points.py --n 100 --mode skeleton \
   --min-target-spacing 5 --debug-png
 \end{lstlisting}
 
-\subsection{BVP shooting (accurate target hitting)}
+\subsection{Swarm IVP (collision-free)}
 \begin{lstlisting}
 python3 task1/simulate_drones.py \
-  --bvp-match-final-velocity --bvp-final-velocity-weight 3.0 \
+  --model swarm --k-rep 200 --r-safe 12 \
   --targets task1/outputs/target_points.csv --bg-image task1/inputs/name.png \
   --initial hline_below --offset 50 \
-  --k-p 2.0 --k-d 2.5 --t-end 20 --steps 200 --show
-\end{lstlisting}
-
-\subsection{Trajectory Optimization (direct transcription)}
-\begin{lstlisting}
-python3 task1/optimal_trajectories.py \
-  --targets task1/outputs/target_points.csv --bg-image task1/inputs/name.png \
-  --initial hline_below --offset 50 --init-min-spacing 25 \
-  --k-steps 80 --iters 80 --lr 1e-4 \
-  --r-safe 10 --w-col 50 --show
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 --t-end 20 --steps 200 --show
 \end{lstlisting}
 
 \section{Validation and test cases}
@@ -193,7 +175,7 @@ Two practical metrics were used:
 \subsection{Limitations}
 \begin{itemize}
   \item \textbf{BVP shooting limitation}: independent drones $\Rightarrow$ no collision-free guarantee.
-  \item \textbf{Trajectory Optimization}: sensitive to hyperparameters (learning rate, weights); may require tuning per scene.
+\item \textbf{Swarm IVP}: strong repulsion can slow convergence to the target shape; requires tuning $k_{\mathrm{rep}}$ and $R_{\mathrm{safe}}$.
 \end{itemize}
 
 \section{AI usage disclosure}
@@ -207,7 +189,7 @@ All final code and results were verified by running the scripts locally and insp
 
 \section*{Files included in the submission}
 \begin{itemize}
-  \item Code: \texttt{task1/extract\_target\_points.py}, \texttt{task1/simulate\_drones.py}, \texttt{task1/optimal\_trajectories.py}, \texttt{task1/sort\_target\_points.py}
+  \item Code: \texttt{task1/extract\_target\_points.py}, \texttt{task1/simulate\_drones.py}, \texttt{task1/sort\_target\_points.py}
   \item Input: \texttt{task1/inputs/name.png}
   \item Generated data (reproducible): files in \texttt{task1/outputs/} (targets, trajectories, plots, animations)
   \item This report: \texttt{task1/report/main.tex}

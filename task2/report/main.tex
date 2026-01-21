@@ -74,7 +74,7 @@ x_i(t)\in\mathbb{R}^2,\qquad v_i(t)\in\mathbb{R}^2.
 The per-drone ODE used in \texttt{task2/transition.py} is:
 \begin{align}
 \dot{x}_i(t) &= v_i(t),\\
-\dot{v}_i(t) &= \frac{1}{m}\left(k_p\,(T_i-x_i(t)) - k_d\,v_i(t)\right).
+\dot{v}_i(t) &= \frac{1}{m}\left(k_p\,(T_i-x_i(t)) + \sum_{j\neq i} f_{\mathrm{rep}}(x_i,x_j) - k_d\,v_i(t)\right).
 \end{align}
 Here $T_i\in\mathbb{R}^2$ is the \textbf{fixed} greeting target assigned to drone $i$.
 
@@ -84,12 +84,11 @@ Task 2 is formulated as a boundary value problem:
 x_i(0)=x_{i,0}\quad\text{(from Task 1)},\qquad x_i(T)=T_i\quad\text{(greeting targets)}.
 \]
 
-\section{Numerical method: shooting}
-We solve the BVP via \textbf{shooting}. For each drone, the unknown is the initial velocity $v_i(0)$.
+\section{Numerical method}
+Two solvers are supported:
 \begin{itemize}
-  \item Given a guess $v_i(0)$, we integrate the ODE from $t=0$ to $t=T$ using \texttt{solve\_ivp} (RK45).
-  \item We compute the terminal error $F(v_i(0)) = x_i(T;v_i(0)) - T_i$.
-  \item We update $v_i(0)$ using a nonlinear solver.
+  \item \textbf{Swarm IVP (default)}: integrate the coupled system for all drones at once using \texttt{solve\_ivp} (RK45). Repulsion enforces collision avoidance.
+  \item \textbf{BVP shooting (optional)}: solve each drone independently by finding $v_i(0)$ so that $x_i(T)\approx T_i$.
 \end{itemize}
 
 \subsection{Reducing end oscillation}
@@ -103,7 +102,7 @@ enabled via:
 \end{lstlisting}
 
 \section{Collision discussion and verification}
-\textbf{This Task 2 shooting implementation solves drones independently} (no inter-drone repulsion term), therefore collision-free motion is \textbf{not guaranteed} by the model.
+\textbf{Swarm IVP includes repulsion}, so collision avoidance is enforced by the model. Shooting remains available but does not include repulsion.
 
 However, we can \textbf{verify} whether collisions occurred by measuring the minimum pairwise distance over time:
 \[
@@ -128,8 +127,8 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --bvp-match-final-velocity --bvp-final-velocity-weight 3.0 \
-  --k-p 2.0 --k-d 2.5 \
+  --model swarm --k-rep 200 --r-safe 12 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
   --t-end 20 --steps 200 \
   --collision-report --collision-threshold 12 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot

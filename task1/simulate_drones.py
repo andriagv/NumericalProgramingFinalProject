@@ -34,6 +34,38 @@ def load_target_points(path: str) -> np.ndarray:
     return pts
 
 
+def _saturate(v: np.ndarray, v_max: float) -> np.ndarray:
+    v = np.asarray(v, dtype=np.float64)
+    vmax = float(v_max)
+    if vmax <= 0 or not np.isfinite(vmax):
+        return v
+    n = np.linalg.norm(v, axis=-1, keepdims=True)
+    scale = np.ones_like(n)
+    mask = n > vmax
+    scale[mask] = vmax / (n[mask] + 1e-12)
+    return v * scale
+
+
+def _repulsive_force(positions: np.ndarray, k_rep: float, r_safe: float) -> np.ndarray:
+    n = len(positions)
+    if n == 0:
+        return np.zeros((0, 2), dtype=np.float64)
+    k = float(k_rep)
+    r = float(r_safe)
+    if k <= 0 or r <= 0:
+        return np.zeros_like(positions, dtype=np.float64)
+    diff = positions[:, None, :] - positions[None, :, :]  # (N,N,2)
+    dist2 = np.sum(diff * diff, axis=2)
+    np.fill_diagonal(dist2, np.inf)
+    mask = dist2 < r * r
+    if not np.any(mask):
+        return np.zeros_like(positions, dtype=np.float64)
+    dist = np.sqrt(dist2 + 1e-12)
+    force = k * diff / (dist[:, :, None] ** 3)
+    force[~mask] = 0.0
+    return np.sum(force, axis=1)
+
+
 def make_initial_positions(
     target_points: np.ndarray,
     mode: str,
@@ -195,6 +227,50 @@ def solve_bvp_shooting_all(
     return x_traj, y_traj
 
 
+def solve_swarm_ivp(
+    *,
+    t_eval: np.ndarray,
+    initial_positions: np.ndarray,
+    initial_velocities: np.ndarray,
+    targets: np.ndarray,
+    params: Params,
+    rtol: float,
+    atol: float,
+    k_rep: float,
+    r_safe: float,
+    v_max: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    from scipy.integrate import solve_ivp
+
+    t_eval = np.asarray(t_eval, dtype=np.float64)
+    n = len(targets)
+    if n == 0:
+        return np.zeros((0, len(t_eval))), np.zeros((0, len(t_eval)))
+
+    def rhs(_t: float, state: np.ndarray) -> np.ndarray:
+        pos = state[: 2 * n].reshape(n, 2)
+        vel = state[2 * n :].reshape(n, 2)
+        rep = _repulsive_force(pos, k_rep=k_rep, r_safe=r_safe)
+        acc = (params.k_p * (targets - pos) + rep - params.k_d * vel) / params.m
+        xdot = _saturate(vel, v_max)
+        return np.concatenate([xdot.reshape(-1), acc.reshape(-1)])
+
+    y0 = np.concatenate([initial_positions.reshape(-1), initial_velocities.reshape(-1)])
+    sol = solve_ivp(
+        fun=rhs,
+        t_span=(float(t_eval[0]), float(t_eval[-1])),
+        y0=y0,
+        t_eval=t_eval,
+        method="RK45",
+        rtol=rtol,
+        atol=atol,
+    )
+    pos_hist = sol.y[: 2 * n].reshape(n, 2, len(t_eval))
+    x_traj = pos_hist[:, 0, :]
+    y_traj = pos_hist[:, 1, :]
+    return x_traj, y_traj
+
+
 def save_trajectories_csv(path: str, t: np.ndarray, x: np.ndarray, y: np.ndarray) -> None:
     n, tt = x.shape
     with open(path, "w", encoding="utf-8") as f:
@@ -241,7 +317,7 @@ def main() -> None:
     default_out_dir = os.path.join(base_dir, "outputs")
 
     parser = argparse.ArgumentParser(
-        description="BVP (shooting) drone trajectories + visualization (Task 1)."
+        description="Task 1 trajectories + visualization (BVP shooting or swarm IVP with repulsion)."
     )
     parser.add_argument("--targets", default=default_targets, help="target_points.csv or target_points.npy")
     parser.add_argument("--bg-image", default=default_bg, help="Optional background image (e.g. name.png)")
@@ -270,6 +346,15 @@ def main() -> None:
     parser.add_argument("--m", type=float, default=1.0)
     parser.add_argument("--k-p", type=float, default=2.0)
     parser.add_argument("--k-d", type=float, default=0.5)
+    parser.add_argument(
+        "--model",
+        choices=["swarm", "shooting"],
+        default="swarm",
+        help="swarm=IVP with repulsion; shooting=per-drone BVP (no collision avoidance).",
+    )
+    parser.add_argument("--k-rep", type=float, default=200.0, help="Repulsion gain for swarm model")
+    parser.add_argument("--r-safe", type=float, default=12.0, help="Safety radius for repulsion (pixels)")
+    parser.add_argument("--v-max", type=float, default=1e9, help="Velocity saturation (pixels/sec)")
 
     parser.add_argument(
         "--bvp-match-final-velocity",
@@ -325,16 +410,31 @@ def main() -> None:
     )
 
     t_eval = np.linspace(0.0, float(args.t_end), int(args.steps))
-    x_traj, y_traj = solve_bvp_shooting_all(
-        t_eval=t_eval,
-        initial_positions=initial_positions,
-        targets=targets,
-        params=params,
-        rtol=float(args.rtol),
-        atol=float(args.atol),
-        match_final_velocity=bool(args.bvp_match_final_velocity),
-        final_velocity_weight=float(args.bvp_final_velocity_weight),
-    )
+    if args.model == "shooting":
+        x_traj, y_traj = solve_bvp_shooting_all(
+            t_eval=t_eval,
+            initial_positions=initial_positions,
+            targets=targets,
+            params=params,
+            rtol=float(args.rtol),
+            atol=float(args.atol),
+            match_final_velocity=bool(args.bvp_match_final_velocity),
+            final_velocity_weight=float(args.bvp_final_velocity_weight),
+        )
+    else:
+        v0 = np.zeros_like(initial_positions)
+        x_traj, y_traj = solve_swarm_ivp(
+            t_eval=t_eval,
+            initial_positions=initial_positions,
+            initial_velocities=v0,
+            targets=targets,
+            params=params,
+            rtol=float(args.rtol),
+            atol=float(args.atol),
+            k_rep=float(args.k_rep),
+            r_safe=float(args.r_safe),
+            v_max=float(args.v_max),
+        )
 
     final_pos = np.column_stack([x_traj[:, -1], y_traj[:, -1]])
     dist = np.linalg.norm(final_pos - targets, axis=1)
@@ -361,7 +461,8 @@ def main() -> None:
         ax1.plot(x_traj[i], y_traj[i], alpha=0.5, linewidth=0.8)
     ax1.scatter(initial_positions[:, 0], initial_positions[:, 1], c="green", s=30, label="initial", zorder=5)
     ax1.scatter(targets[:, 0], targets[:, 1], c="red", s=50, label="targets", zorder=5)
-    ax1.set_title(f"{n} drone trajectories (BVP shooting)")
+    title_suffix = "BVP shooting" if args.model == "shooting" else "swarm IVP + repulsion"
+    ax1.set_title(f"{n} drone trajectories ({title_suffix})")
     ax1.set_xlabel("X (pixels)")
     ax1.set_ylabel("Y (pixels)")
     ax1.grid(True, alpha=0.3)
@@ -393,7 +494,7 @@ def main() -> None:
     if not args.bg_image:
         ax2.set_xlim(targets[:, 0].min() - pad, targets[:, 0].max() + pad)
         ax2.set_ylim(targets[:, 1].max() + pad, targets[:, 1].min() - pad)
-    ax2.set_title("Drone motion animation (BVP shooting)")
+    ax2.set_title(f"Drone motion animation ({title_suffix})")
     ax2.grid(True, alpha=0.3)
     ax2.set_aspect("equal", adjustable="box")
     if not args.bg_image:

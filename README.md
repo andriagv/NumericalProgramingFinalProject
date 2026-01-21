@@ -3,7 +3,7 @@
 This repo is organized by tasks:
 - `task1/` — Task 1 (static formation on a handwritten input)
 - `task2/` — Task 2 (transition to greeting: "Happy New Year!")
-- `task3/` — placeholder (not started)
+- `task3/` — Task 3 (dynamic tracking + shape preservation on a video)
 
 ## Task 1 (high level)
 
@@ -51,14 +51,14 @@ Medial axis (skeleton) mode (points lie on the centerline):
 python3 task1/extract_target_points.py --n 100 --mode skeleton --min-per-component 8 --debug-png
 ```
 
-## Drone simulation (BVP shooting + animation)
+## Drone simulation (swarm IVP + animation)
 
-Generate trajectories using **BVP (shooting)** (accurate target hitting) and animate:
+Generate trajectories using **swarm IVP with repulsion** (collision avoidance) and animate:
 
 ```bash
 python3 task1/simulate_drones.py \
-  --bvp-match-final-velocity --bvp-final-velocity-weight 3.0 \
-  --k-p 2.0 --k-d 2.5 \
+  --model swarm --k-rep 200 --r-safe 12 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
   --t-end 20 --steps 200 --show
 ```
 
@@ -66,27 +66,9 @@ Save a GIF + trajectories:
 
 ```bash
 python3 task1/simulate_drones.py \
-  --bvp-match-final-velocity --bvp-final-velocity-weight 3.0 \
-  --k-p 2.0 --k-d 2.5 \
+  --model swarm --k-rep 200 --r-safe 12 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
   --t-end 20 --steps 200 --save-gif --save-traj-csv --save-traj-npy
-```
-
-## Option 5: Trajectory optimization (direct transcription + collision penalty)
-
-This is a simple **trajectory optimization** approach (not just ODE integration):
-- Variables are positions \(p_i(t_k)\) on a coarse time grid.
-- Objective includes smoothness + reaching targets + collision-avoidance penalty.
-
-Show windows:
-
-```bash
-python3 task1/optimal_trajectories.py --initial hline_below --offset 50 --k-steps 80 --iters 80 --lr 1e-4 --r-safe 10 --show
-```
-
-Save GIF + npy:
-
-```bash
-python3 task1/optimal_trajectories.py --k-steps 80 --iters 80 --lr 1e-4 --r-safe 10 --save-gif --save-npy
 ```
 
 ## Outputs (Task 1)
@@ -144,8 +126,8 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --bvp-match-final-velocity --bvp-final-velocity-weight 3.0 \
-  --k-p 2.0 --k-d 2.5 \
+  --model swarm --k-rep 200 --r-safe 12 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
   --t-end 20 --steps 200 \
   --collision-report --collision-threshold 12 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot
@@ -168,3 +150,33 @@ Transition trajectories:
 Transition animation:
 
 ![Task 2 transition animation](task2/media/transition_motion.gif)
+
+## Task 3 (high level) — Dynamic Tracking and Shape Preservation
+
+- **Start**: Task 2 greeting formation (`task2/outputs/target_points.csv`)
+- **Input**: a video (`task3/video.mp4`)
+- **Task**: move the swarm onto a moving object in the video, then repeat its motion with **shape preservation**
+- **Output**: trajectories + visualization (GIF)
+
+### Task 3: run
+
+```bash
+python3 task3/dynamic_tracking.py \
+  --save-debug --save-traj-csv --save-traj-npy --save-gif
+```
+
+### Task 3: report (LaTeX)
+
+```bash
+cd task3/report && pdflatex main.tex
+```
+
+### Task 3: preview (generated)
+
+Trajectories:
+
+![Task 3 trajectories](task3/media/task3_trajectories.png)
+
+Animation:
+
+![Task 3 animation](task3/outputs/task3_motion.gif)
