@@ -113,8 +113,7 @@ def _sample_points_inside_mask(
         idx = np.argpartition(dvals, -k)[-k:]
         ys, xs, dvals = ys[idx], xs[idx], dvals[idx]
 
-    
-    coords = np.column_stack([xs, ys]).astype(np.float64) 
+    coords = np.column_stack([xs, ys]).astype(np.float64)
     dvals = dvals.astype(np.float64)
 
     min_d2 = np.full(len(coords), np.inf, dtype=np.float64)
@@ -739,9 +738,9 @@ def save_outputs(
 
 
 def main() -> None:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    default_image = os.path.join(base_dir, "inputs", "name.png")
-    default_out_dir = os.path.join(base_dir, "outputs")
+    repo_root = os.path.dirname(os.path.abspath(__file__))
+    default_image = os.path.join(repo_root, "task1", "inputs", "name.png")
+    default_out_dir = os.path.join(repo_root, "task1", "outputs")
 
     parser = argparse.ArgumentParser(description="Extract equally-spaced target points along text contours.")
     parser.add_argument("--image", default=default_image, help="Path to input image (e.g. name.png)")
@@ -854,4 +853,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -52,7 +52,7 @@ python3 task2/generate_greeting_image.py --out task2/inputs/greeting.png
 \subsection{Target point extraction}
 We extract $N$ target points from the greeting image (typically in skeleton / medial-axis mode):
 \begin{lstlisting}
-python3 task1/extract_target_points.py \
+python3 extract_target_points.py \
   --image task2/inputs/greeting.png \
   --n 100 --mode skeleton --min-target-spacing 5 \
   --out-dir task2/outputs --debug-png
@@ -118,7 +118,7 @@ All commands are run from the project root.
 
 \subsection{Task 1 (ensure start formation with N drones)}
 \begin{lstlisting}
-python3 task1/extract_target_points.py --n 100 --mode skeleton --min-target-spacing 5 --debug-png
+python3 extract_target_points.py --n 100 --mode skeleton --min-target-spacing 5 --debug-png
 \end{lstlisting}
 
 \subsection{Task 2 (transition)}

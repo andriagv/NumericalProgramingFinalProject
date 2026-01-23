@@ -22,33 +22,33 @@ This repo is organized by tasks:
 From the project root:
 
 ```bash
-python3 task1/extract_target_points.py --n 100 --mode interior --debug-png
+python3 extract_target_points.py --n 100 --mode interior --debug-png
 ```
 
 Optional:
 
 ```bash
-python3 task1/extract_target_points.py --n 100 --mode interior --show
+python3 extract_target_points.py --n 100 --mode interior --show
 ```
 
 Point size tweaks:
 
 ```bash
-python3 task1/extract_target_points.py --n 100 --mode interior --min-border-dist 6 --debug-png --debug-point-radius 4
-python3 task1/extract_target_points.py --n 100 --mode interior --show --show-point-size 90
+python3 extract_target_points.py --n 100 --mode interior --min-border-dist 6 --debug-png --debug-point-radius 4
+python3 extract_target_points.py --n 100 --mode interior --show --show-point-size 90
 ```
 
 Better readability per letter (recommended):
 
 ```bash
-python3 task1/extract_target_points.py --n 100 --mode interior --min-per-component 8 --debug-png
-python3 task1/extract_target_points.py --n 100 --mode interior --extreme-dirs 8 --debug-png
+python3 extract_target_points.py --n 100 --mode interior --min-per-component 8 --debug-png
+python3 extract_target_points.py --n 100 --mode interior --extreme-dirs 8 --debug-png
 ```
 
 Medial axis (skeleton) mode (points lie on the centerline):
 
 ```bash
-python3 task1/extract_target_points.py --n 100 --mode skeleton --min-per-component 8 --debug-png
+python3 extract_target_points.py --n 100 --mode skeleton --min-per-component 8 --debug-png
 ```
 
 ## Drone simulation (swarm IVP + animation)
@@ -113,7 +113,7 @@ python3 task2/generate_greeting_image.py --out task2/inputs/greeting.png
 Extract greeting target points (use the same `--n` as Task 1):
 
 ```bash
-python3 task1/extract_target_points.py \
+python3 extract_target_points.py \
   --image task2/inputs/greeting.png \
   --n 100 --mode skeleton --min-target-spacing 5 \
   --out-dir task2/outputs --debug-png

@@ -13,7 +13,7 @@ python3 task2/generate_greeting_image.py --out task2/inputs/greeting.png
 Use the same number of drones as Task 1 (example: `--n 100`):
 
 ```bash
-python3 task1/extract_target_points.py \
+python3 extract_target_points.py \
   --image task2/inputs/greeting.png \
   --n 100 --mode skeleton --min-target-spacing 5 \
   --out-dir task2/outputs --debug-png
