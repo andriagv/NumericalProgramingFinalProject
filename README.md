@@ -17,38 +17,22 @@ This repo is organized by tasks:
   - `target_points.csv` (same points as CSV, header `x,y`)
   - `debug_target_points.png` (optional) for visual checking
 
-## Run
+## Run (how to run the project)
 
-From the project root:
-
-```bash
-python3 extract_target_points.py --n 100 --mode interior --debug-png
-```
-
-Optional:
+Run all tasks from the project root with N=200 and smaller marker sizes:
 
 ```bash
-python3 extract_target_points.py --n 100 --mode interior --show
-```
+python3 extract_target_points.py \
+  --image task1/inputs/name.png \
+  --n 200 --mode skeleton --min-target-spacing 5 \
+  --out-dir task1/outputs --debug-png --debug-point-radius 2
 
-Point size tweaks:
-
-```bash
-python3 extract_target_points.py --n 100 --mode interior --min-border-dist 6 --debug-png --debug-point-radius 4
-python3 extract_target_points.py --n 100 --mode interior --show --show-point-size 90
-```
-
-Better readability per letter (recommended):
-
-```bash
-python3 extract_target_points.py --n 100 --mode interior --min-per-component 8 --debug-png
-python3 extract_target_points.py --n 100 --mode interior --extreme-dirs 8 --debug-png
-```
-
-Medial axis (skeleton) mode (points lie on the centerline):
-
-```bash
-python3 extract_target_points.py --n 100 --mode skeleton --min-per-component 8 --debug-png
+python3 task1/simulate_drones.py \
+  --model swarm --k-rep 160 --r-safe 50 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --t-end 12 --steps 120 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --drone-size 21 --target-size 35 --initial-size 21
 ```
 
 ## Drone simulation (swarm IVP + animation)
@@ -57,18 +41,10 @@ Generate trajectories using **swarm IVP with repulsion** (collision avoidance) a
 
 ```bash
 python3 task1/simulate_drones.py \
-  --model swarm --k-rep 200 --r-safe 12 \
+  --model swarm --k-rep 160 --r-safe 50 \
   --k-p 2.0 --k-d 2.5 --v-max 1e9 \
-  --t-end 20 --steps 200 --show
-```
-
-Save a GIF + trajectories:
-
-```bash
-python3 task1/simulate_drones.py \
-  --model swarm --k-rep 200 --r-safe 12 \
-  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
-  --t-end 20 --steps 200 --save-gif --save-traj-csv --save-traj-npy
+  --t-end 12 --steps 120 --show \
+  --drone-size 21 --target-size 35 --initial-size 21
 ```
 
 ## Outputs (Task 1)
@@ -104,33 +80,39 @@ Animation:
 
 ### Task 2: run
 
-Generate the greeting image:
-
-```bash
-python3 task2/generate_greeting_image.py --out task2/inputs/greeting.png
-```
-
 Extract greeting target points (use the same `--n` as Task 1):
 
 ```bash
 python3 extract_target_points.py \
   --image task2/inputs/greeting.png \
-  --n 100 --mode skeleton --min-target-spacing 5 \
+  --n 200 --mode skeleton --min-target-spacing 5 \
   --out-dir task2/outputs --debug-png
 ```
 
-Generate transition trajectories + GIF:
+Generate transition trajectories + GIF (full view + default view):
 
 ```bash
 python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --model swarm --k-rep 200 --r-safe 12 \
+  --model swarm --k-rep 160 --r-safe 50 \
   --k-p 2.0 --k-d 2.5 --v-max 1e9 \
-  --t-end 20 --steps 200 \
-  --collision-report --collision-threshold 12 \
-  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot
+  --t-end 12 --steps 120 \
+  --collision-report --collision-threshold 50 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --full-view --output-prefix full_transition
+
+python3 task2/transition.py \
+  --start task1/outputs/target_points.csv \
+  --targets task2/outputs/target_points.csv \
+  --bg-target task2/inputs/greeting.png \
+  --model swarm --k-rep 160 --r-safe 50 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --t-end 12 --steps 120 \
+  --collision-report --collision-threshold 50 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --output-prefix transition
 ```
 
 ### Task 2: preview (generated)
@@ -162,14 +144,14 @@ Transition animation:
 
 ```bash
 python3 task3/dynamic_tracking.py \
+  --tracking-mode contour \
+  --controller direct \
+  --video-step 1 \
+  --contour-upscale 3.0 --contour-smooth 9 \
   --segmenter greenscreen \
-  --save-traj-csv --save-traj-npy --save-gif
-```
-
-### Task 3: report (LaTeX)
-
-```bash
-cd task3/report && pdflatex main.tex
+  --save-gif --save-traj-csv --save-traj-npy --gif-fps 30 \
+  --output-gif task3/outputs/task3_contour_direct_hi_with_video.gif \
+  --drone-size 13
 ```
 
 ### Task 3: preview (generated)
@@ -181,3 +163,7 @@ Trajectories:
 Animation:
 
 ![Task 3 animation](task3/outputs/task3_motion.gif)
+
+High-detail tracking (with video):
+
+![Task 3 contour direct hi](task3/media/task3_contour_direct_hi_with_video.gif)

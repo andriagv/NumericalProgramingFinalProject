@@ -376,6 +376,9 @@ def main() -> None:
     parser.add_argument("--gif-fps", type=int, default=20)
     parser.add_argument("--gif-interval-ms", type=int, default=50)
     parser.add_argument("--hold-last", type=int, default=0, help="Repeat the last frame this many times (pause at end)")
+    parser.add_argument("--drone-size", type=float, default=30.0, help="Drone marker size (scatter)")
+    parser.add_argument("--target-size", type=float, default=50.0, help="Target marker size (scatter)")
+    parser.add_argument("--initial-size", type=float, default=30.0, help="Initial marker size (scatter)")
 
     parser.add_argument(
         "--collision-report",
@@ -459,8 +462,22 @@ def main() -> None:
         ax1.set_ylim(h, 0)
     for i in range(n):
         ax1.plot(x_traj[i], y_traj[i], alpha=0.5, linewidth=0.8)
-    ax1.scatter(initial_positions[:, 0], initial_positions[:, 1], c="green", s=30, label="initial", zorder=5)
-    ax1.scatter(targets[:, 0], targets[:, 1], c="red", s=50, label="targets", zorder=5)
+    ax1.scatter(
+        initial_positions[:, 0],
+        initial_positions[:, 1],
+        c="green",
+        s=float(args.initial_size),
+        label="initial",
+        zorder=5,
+    )
+    ax1.scatter(
+        targets[:, 0],
+        targets[:, 1],
+        c="red",
+        s=float(args.target_size),
+        label="targets",
+        zorder=5,
+    )
     title_suffix = "BVP shooting" if args.model == "shooting" else "swarm IVP + repulsion"
     ax1.set_title(f"{n} drone trajectories ({title_suffix})")
     ax1.set_xlabel("X (pixels)")
@@ -489,7 +506,7 @@ def main() -> None:
         ax2.imshow(img, cmap="gray", origin="upper", alpha=0.35)
         ax2.set_xlim(0, w)
         ax2.set_ylim(h, 0)
-    ax2.scatter(targets[:, 0], targets[:, 1], c="red", s=50, label="targets")
+    ax2.scatter(targets[:, 0], targets[:, 1], c="red", s=float(args.target_size), label="targets")
     pad = max(50.0, float(args.offset))
     if not args.bg_image:
         ax2.set_xlim(targets[:, 0].min() - pad, targets[:, 0].max() + pad)
@@ -499,7 +516,13 @@ def main() -> None:
     ax2.set_aspect("equal", adjustable="box")
     if not args.bg_image:
         ax2.invert_yaxis()
-    drone_dots = ax2.scatter(initial_positions[:, 0], initial_positions[:, 1], c="blue", s=30, label="drones")
+    drone_dots = ax2.scatter(
+        initial_positions[:, 0],
+        initial_positions[:, 1],
+        c="blue",
+        s=float(args.drone_size),
+        label="drones",
+    )
     ax2.legend()
     fig2.tight_layout()
 

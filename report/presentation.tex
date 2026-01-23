@@ -51,7 +51,15 @@ Simulate an illuminated drone show with shape preservation:
 \end{itemize}
 
 \subsection{Input data and preprocessing}
-Binarization uses \texttt{THRESH\_BINARY\_INV} so ink becomes white and background black. Targets are sampled from contour / interior / skeleton, with optional minimum spacing.
+Binarization uses \texttt{THRESH\_BINARY\_INV} so ink becomes white and background black. Targets are sampled from contour / interior / skeleton, with optional minimum spacing. The number of drones $N$ equals the number of sampled target points and is kept consistent across tasks.
+
+\subsection{Inputs and parameters}
+\begin{itemize}
+  \item \textbf{Input image:} \texttt{task1/inputs/name.png} (handwritten name, at least 8 characters).
+  \item \textbf{Number of drones:} $N$ (example: 100).
+  \item \textbf{Initial formation:} line or two-line placement below the target (options: \texttt{hline\_below}, \texttt{hline\_match\_targets\_x}, \texttt{two\_hlines\_below}).
+  \item \textbf{Repulsion parameters:} gain $k_{\mathrm{rep}}$ and safety radius $R_{\mathrm{safe}}$ for collision avoidance.
+\end{itemize}
 
 \subsection{Mathematical model}
 For drone $i$:
@@ -69,19 +77,32 @@ x_i(0)=x_{i,0},\quad x_i(T)=T_i.
 \]
 
 \subsection{Numerical methods}
-We use \texttt{solve\_ivp} (RK45) for the coupled IVP. BVP shooting is available per drone without repulsion.
+We use \texttt{solve\_ivp} (RK45) for the coupled IVP. BVP shooting is available per drone without repulsion. Velocity saturation is applied as:
+\[
+\dot{x}_i = v_i \cdot \min\left(1,\frac{v_{\max}}{\|v_i\|}\right).
+\]
+
+\subsection{Validation}
+We validate final formation accuracy and safety:
+\begin{itemize}
+  \item \textbf{Accuracy:} mean/max distance to targets at $t=T$.
+  \item \textbf{Safety:} minimum inter-drone distance over time (diagnostic).
+\end{itemize}
 
 \subsection{Reproducibility (commands)}
 \begin{lstlisting}
-python3 extract_target_points.py --n 100 --mode skeleton \
-  --min-target-spacing 5 --debug-png
+python3 extract_target_points.py \
+  --image task1/inputs/name.png \
+  --n 200 --mode skeleton --min-target-spacing 5 \
+  --out-dir task1/outputs --debug-png --debug-point-radius 2
 \end{lstlisting}
 \begin{lstlisting}
 python3 task1/simulate_drones.py \
-  --model swarm --k-rep 200 --r-safe 12 \
-  --targets task1/outputs/target_points.csv --bg-image task1/inputs/name.png \
-  --initial hline_below --offset 50 \
-  --k-p 2.0 --k-d 2.5 --v-max 1e9 --t-end 20 --steps 200 --show
+  --model swarm --k-rep 160 --r-safe 50 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --t-end 12 --steps 120 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --drone-size 21 --target-size 35 --initial-size 21
 \end{lstlisting}
 
 \subsection{Test cases}
@@ -105,12 +126,9 @@ x_i(0)=x_{i,0},\qquad x_i(T)=T_i.
 
 \subsection{Reproducibility (commands)}
 \begin{lstlisting}
-python3 task2/generate_greeting_image.py --out task2/inputs/greeting.png
-\end{lstlisting}
-\begin{lstlisting}
 python3 extract_target_points.py \
   --image task2/inputs/greeting.png \
-  --n 100 --mode skeleton --min-target-spacing 5 \
+  --n 200 --mode skeleton --min-target-spacing 5 \
   --out-dir task2/outputs --debug-png
 \end{lstlisting}
 \begin{lstlisting}
@@ -118,11 +136,24 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --model swarm --k-rep 200 --r-safe 12 \
+  --model swarm --k-rep 160 --r-safe 50 \
   --k-p 2.0 --k-d 2.5 --v-max 1e9 \
-  --t-end 20 --steps 200 \
-  --collision-report --collision-threshold 12 \
-  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot
+  --t-end 12 --steps 120 \
+  --collision-report --collision-threshold 50 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --full-view --output-prefix full_transition
+\end{lstlisting}
+\begin{lstlisting}
+python3 task2/transition.py \
+  --start task1/outputs/target_points.csv \
+  --targets task2/outputs/target_points.csv \
+  --bg-target task2/inputs/greeting.png \
+  --model swarm --k-rep 160 --r-safe 50 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --t-end 12 --steps 120 \
+  --collision-report --collision-threshold 50 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --output-prefix transition
 \end{lstlisting}
 
 \subsection{Test cases}
@@ -151,6 +182,14 @@ We align consecutive frames via cyclic shift and orientation checks to keep poin
   \item \textbf{Dynamics (IVP RK4)}: second-order damped model integrated by RK4 to follow moving targets.
 \end{itemize}
 
+\subsection{Dynamic model (IVP)}
+For each drone in dynamics mode:
+\begin{align}
+\dot{x}_i(t) &= v_i(t),\\
+\dot{v}_i(t) &= \frac{1}{m}\left(k_p\,(T_i(t)-x_i(t)) - k_d\,v_i(t)\right),
+\end{align}
+with velocity saturation $v_i \leftarrow v_i \cdot \min\left(1,\frac{v_{\max}}{\|v_i\|}\right)$ before integration.
+
 \subsection{Reproducibility (commands)}
 \begin{lstlisting}
 python3 task3/dynamic_tracking.py \
@@ -160,7 +199,8 @@ python3 task3/dynamic_tracking.py \
   --contour-upscale 3.0 --contour-smooth 9 \
   --segmenter greenscreen \
   --save-gif --save-traj-csv --save-traj-npy --gif-fps 30 \
-  --output-gif task3/outputs/task3_contour_direct_hi_with_video.gif
+  --output-gif task3/outputs/task3_contour_direct_hi_with_video.gif \
+  --drone-size 13
 \end{lstlisting}
 
 \subsection{Test cases}

@@ -247,6 +247,11 @@ def main() -> None:
     ap.add_argument("--targets", required=True, help="Target positions for greeting, csv/npy (N,2)")
     ap.add_argument("--bg-target", default=None, help="Optional greeting image to show behind targets")
     ap.add_argument("--out-dir", default=default_out_dir, help="Output directory")
+    ap.add_argument("--output-prefix", default="transition", help="Prefix for output filenames")
+    ap.add_argument("--full-view", action="store_true", help="Show full start-to-target extents in plots/animation")
+    ap.add_argument("--drone-size", type=float, default=30.0, help="Drone marker size (scatter)")
+    ap.add_argument("--target-size", type=float, default=50.0, help="Target marker size (scatter)")
+    ap.add_argument("--start-size", type=float, default=60.0, help="Start marker size (scatter)")
 
     ap.add_argument("--t-end", type=float, default=20.0)
     ap.add_argument("--steps", type=int, default=200)
@@ -354,25 +359,51 @@ def main() -> None:
             raise FileNotFoundError(f"Could not read bg image: {args.bg_target}")
         h, w = img.shape[:2]
         ax1.imshow(img, cmap="gray", origin="upper", alpha=0.35)
-        ax1.set_xlim(0, w)
-        ax1.set_ylim(h, 0)
     for i in range(len(targets)):
         ax1.plot(x_traj[i], y_traj[i], alpha=0.5, linewidth=0.8)
-    ax1.scatter(start[:, 0], start[:, 1], c="green", s=30, label="start (name)", zorder=5)
-    ax1.scatter(targets[:, 0], targets[:, 1], c="red", s=50, label="targets (greeting)", zorder=5)
+    ax1.scatter(
+        start[:, 0],
+        start[:, 1],
+        s=float(args.start_size),
+        marker="o",
+        facecolors="none",
+        edgecolors="limegreen",
+        linewidths=1.5,
+        label="start (name)",
+        zorder=6,
+    )
+    ax1.scatter(
+        targets[:, 0],
+        targets[:, 1],
+        c="red",
+        s=float(args.target_size),
+        label="targets (greeting)",
+        zorder=5,
+    )
     title_suffix = "BVP shooting" if args.model == "shooting" else "swarm IVP + repulsion"
     ax1.set_title(f"Task 2 transition trajectories ({title_suffix})")
     ax1.set_xlabel("X (pixels)")
     ax1.set_ylabel("Y (pixels)")
     ax1.grid(True, alpha=0.3)
     ax1.set_aspect("equal", adjustable="box")
-    if not args.bg_target:
-        ax1.invert_yaxis()
+    # Axis limits (full view optional)
+    if args.full_view:
+        all_x = np.concatenate([start[:, 0], targets[:, 0], x_traj.reshape(-1)])
+        all_y = np.concatenate([start[:, 1], targets[:, 1], y_traj.reshape(-1)])
+        pad = max(30.0, float(args.r_safe) * 0.5)
+        ax1.set_xlim(all_x.min() - pad, all_x.max() + pad)
+        ax1.set_ylim(all_y.max() + pad, all_y.min() - pad)
+    else:
+        if args.bg_target:
+            ax1.set_xlim(0, w)
+            ax1.set_ylim(h, 0)
+        else:
+            ax1.invert_yaxis()
     ax1.legend()
     fig1.tight_layout()
 
     if args.save_traj_plot:
-        out_png = os.path.join(out_dir, "transition_trajectories.png")
+        out_png = os.path.join(out_dir, f"{args.output_prefix}_trajectories.png")
         fig1.savefig(out_png, dpi=200)
         print(f"Saved: {out_png}")
 
@@ -386,15 +417,20 @@ def main() -> None:
             raise FileNotFoundError(f"Could not read bg image: {args.bg_target}")
         h, w = img.shape[:2]
         ax2.imshow(img, cmap="gray", origin="upper", alpha=0.35)
-        ax2.set_xlim(0, w)
-        ax2.set_ylim(h, 0)
-    ax2.scatter(targets[:, 0], targets[:, 1], c="red", s=50, label="targets")
-    drone_dots = ax2.scatter(start[:, 0], start[:, 1], c="blue", s=30, label="drones")
+    ax2.scatter(targets[:, 0], targets[:, 1], c="red", s=float(args.target_size), label="targets")
+    drone_dots = ax2.scatter(start[:, 0], start[:, 1], c="blue", s=float(args.drone_size), label="drones")
     ax2.set_title(f"Task 2 transition animation ({title_suffix})")
     ax2.grid(True, alpha=0.3)
     ax2.set_aspect("equal", adjustable="box")
-    if not args.bg_target:
-        ax2.invert_yaxis()
+    if args.full_view:
+        ax2.set_xlim(all_x.min() - pad, all_x.max() + pad)
+        ax2.set_ylim(all_y.max() + pad, all_y.min() - pad)
+    else:
+        if args.bg_target:
+            ax2.set_xlim(0, w)
+            ax2.set_ylim(h, 0)
+        else:
+            ax2.invert_yaxis()
     ax2.legend()
     fig2.tight_layout()
 
@@ -407,17 +443,17 @@ def main() -> None:
     ani = FuncAnimation(fig2, update, frames=total_frames, interval=int(args.gif_interval_ms), blit=True)
 
     if args.save_gif:
-        out_gif = os.path.join(out_dir, "transition_motion.gif")
+        out_gif = os.path.join(out_dir, f"{args.output_prefix}_motion.gif")
         ani.save(out_gif, writer="pillow", fps=int(args.gif_fps))
         print(f"Saved: {out_gif}")
 
     if args.save_traj_csv:
-        out_csv = os.path.join(out_dir, "transition_trajectories.csv")
+        out_csv = os.path.join(out_dir, f"{args.output_prefix}_trajectories.csv")
         save_trajectories_csv(out_csv, t_eval, x_traj, y_traj)
         print(f"Saved: {out_csv}")
 
     if args.save_traj_npy:
-        out_npy = os.path.join(out_dir, "transition_trajectories.npy")
+        out_npy = os.path.join(out_dir, f"{args.output_prefix}_trajectories.npy")
         payload = {
             "time": t_eval,
             "x": x_traj,

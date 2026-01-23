@@ -270,6 +270,7 @@ def main() -> None:
 
     ap.add_argument("--no-bg", action="store_true")
     ap.add_argument("--drone-color", default="yellow", help="Drone marker color (e.g. blue, cyan, #1f77b4)")
+    ap.add_argument("--drone-size", type=float, default=18.0, help="Drone marker size (scatter)")
     ap.add_argument("--save-gif", action="store_true")
     ap.add_argument("--output-gif", default=None)
     ap.add_argument("--gif-fps", type=int, default=30)
@@ -431,7 +432,7 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(10, 6))
     im = ax.imshow(blank if args.no_bg else bg_frames_rgb[0], origin="upper")
-    dots = ax.scatter([], [], s=18, c=str(args.drone_color))
+    dots = ax.scatter([], [], s=float(args.drone_size), c=str(args.drone_color))
     ax.set_title("Task 3 animation (contour tracking)")
     ax.set_xlim(0, disp_w)
     ax.set_ylim(disp_h, 0)
