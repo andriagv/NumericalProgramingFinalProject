@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 
 @dataclass(frozen=True)
@@ -260,16 +261,21 @@ def main() -> None:
 
     ap.add_argument("--m", type=float, default=1.0)
     ap.add_argument("--k-p", type=float, default=2.0)
-    ap.add_argument("--k-d", type=float, default=0.5)
+    ap.add_argument("--k-d", type=float, default=2.5)
     ap.add_argument(
         "--model",
         choices=["swarm", "shooting"],
         default="swarm",
         help="swarm=IVP with repulsion; shooting=per-drone BVP (no collision avoidance).",
     )
-    ap.add_argument("--k-rep", type=float, default=200.0, help="Repulsion gain for swarm model")
-    ap.add_argument("--r-safe", type=float, default=12.0, help="Safety radius for repulsion (pixels)")
-    ap.add_argument("--v-max", type=float, default=1e9, help="Velocity saturation (pixels/sec)")
+    ap.add_argument("--k-rep", type=float, default=250.0, help="Repulsion gain for swarm model")
+    ap.add_argument("--r-safe", type=float, default=60.0, help="Safety radius for repulsion (pixels)")
+    ap.add_argument("--v-max", type=float, default=200.0, help="Velocity saturation (pixels/sec)")
+    ap.add_argument(
+        "--no-assign",
+        action="store_true",
+        help="Disable optimal start->target assignment (Hungarian).",
+    )
     ap.add_argument("--bvp-match-final-velocity", action="store_true")
     ap.add_argument("--bvp-final-velocity-weight", type=float, default=1.0)
 
@@ -300,6 +306,17 @@ def main() -> None:
             f"N mismatch: start has {len(start)} points, targets has {len(targets)} points. "
             "Regenerate target_points for the greeting with the SAME --n as Task 1."
         )
+
+    assignment = None
+    if not args.no_assign:
+        # Hungarian assignment minimizes total travel distance and reduces crossings.
+        diff = start[:, None, :] - targets[None, :, :]
+        cost = np.linalg.norm(diff, axis=2)
+        row_ind, col_ind = linear_sum_assignment(cost)
+        perm = np.zeros(len(start), dtype=int)
+        perm[row_ind] = col_ind
+        targets = targets[perm]
+        assignment = perm
 
     t_eval = np.linspace(0.0, float(args.t_end), int(args.steps))
     params = Params(m=float(args.m), k_p=float(args.k_p), k_d=float(args.k_d))
@@ -461,6 +478,7 @@ def main() -> None:
             "start_positions": start,
             "target_points": targets,
             "params": params.__dict__,
+            "assignment": assignment,
             "bvp": {
                 "match_final_velocity": bool(args.bvp_match_final_velocity),
                 "final_velocity_weight": float(args.bvp_final_velocity_weight),

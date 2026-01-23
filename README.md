@@ -96,8 +96,8 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --model swarm --k-rep 160 --r-safe 50 \
-  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --model swarm --k-rep 250 --r-safe 60 \
+  --k-p 2.0 --k-d 2.5 --v-max 200 \
   --t-end 12 --steps 120 \
   --collision-report --collision-threshold 50 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
@@ -107,13 +107,16 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --model swarm --k-rep 160 --r-safe 50 \
-  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --model swarm --k-rep 250 --r-safe 60 \
+  --k-p 2.0 --k-d 2.5 --v-max 200 \
   --t-end 12 --steps 120 \
   --collision-report --collision-threshold 50 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
   --output-prefix transition
 ```
+
+Notes:
+- Start→target assignment uses Hungarian matching by default (disable with `--no-assign`).
 
 ### Task 2: preview (generated)
 
@@ -160,9 +163,9 @@ Trajectories:
 
 ![Task 3 trajectories](task3/media/task3_trajectories.png)
 
-Animation:
+assign with video first:
 
-![Task 3 animation](task3/outputs/task3_motion.gif)
+![Task 3 first](task3/media/task3_assign_with_video_first.png)
 
 High-detail tracking (with video):
 

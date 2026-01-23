@@ -28,11 +28,14 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --model swarm --k-rep 200 --r-safe 12 \
-  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --model swarm --k-rep 250 --r-safe 60 \
+  --k-p 2.0 --k-d 2.5 --v-max 200 \
   --t-end 20 --steps 200 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot
 ```
 
 Outputs are written into `task2/outputs/`.
+
+Notes:
+- Start→target assignment uses Hungarian matching by default (disable with `--no-assign`).
 
