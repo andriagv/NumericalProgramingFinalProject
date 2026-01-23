@@ -1,0 +1,181 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+\title{Numerical Programming Final Project\\Combined Presentation (Tasks 1--3)}
+\author{Student: \textbf{(Andria Gvaramia)} \quad Course: Numerical Programming \quad KIU}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Problem statement}
+Simulate an illuminated drone show with shape preservation:
+\begin{enumerate}
+  \item Static formation on a handwritten input.
+  \item Transition to ``Happy New Year!'' greeting.
+  \item Dynamic tracking of a moving object from video.
+\end{enumerate}
+
+\section{Task 1: Static Formation on a Handwritten Input}
+\subsection*{Task statement}
+\textbf{Input:} handwritten name image (at least 8 characters), number of drones $N$, still initial configuration.\\
+\textbf{Goal:} move the swarm from the still initial formation and form the handwritten name.\\
+\textbf{Output:} trajectories and visualization.
+
+\subsection{Overview of the pipeline}
+\begin{itemize}
+  \item \textbf{Target point extraction} from \texttt{task1/inputs/name.png} into \texttt{task1/outputs/target\_points.csv}.
+  \item \textbf{Trajectory generation} using swarm IVP with repulsion in \texttt{task1/simulate\_drones.py}.
+  \item \textbf{Visualization}: static trajectory plot and an animation (GIF).
+\end{itemize}
+
+\subsection{Input data and preprocessing}
+Binarization uses \texttt{THRESH\_BINARY\_INV} so ink becomes white and background black. Targets are sampled from contour / interior / skeleton, with optional minimum spacing.
+
+\subsection{Mathematical model}
+For drone $i$:
+\[
+x_i(t)\in\mathbb{R}^2,\quad v_i(t)\in\mathbb{R}^2.
+\]
+\textbf{Swarm IVP with repulsion}:
+\begin{align}
+\dot{x}_i(t) &= v_i(t),\\
+\dot{v}_i(t) &= \frac{1}{m}\left(k_p\,(T_i-x_i(t)) + \sum_{j\neq i} f_{\mathrm{rep}}(x_i,x_j) - k_d\,v_i(t)\right).
+\end{align}
+\textbf{BVP (shooting, optional)}:
+\[
+x_i(0)=x_{i,0},\quad x_i(T)=T_i.
+\]
+
+\subsection{Numerical methods}
+We use \texttt{solve\_ivp} (RK45) for the coupled IVP. BVP shooting is available per drone without repulsion.
+
+\subsection{Reproducibility (commands)}
+\begin{lstlisting}
+python3 extract_target_points.py --n 100 --mode skeleton \
+  --min-target-spacing 5 --debug-png
+\end{lstlisting}
+\begin{lstlisting}
+python3 task1/simulate_drones.py \
+  --model swarm --k-rep 200 --r-safe 12 \
+  --targets task1/outputs/target_points.csv --bg-image task1/inputs/name.png \
+  --initial hline_below --offset 50 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 --t-end 20 --steps 200 --show
+\end{lstlisting}
+
+\subsection{Test cases}
+\textbf{Works well:} clear, high-contrast handwriting; moderate $N$ with spacing; tuned $R_{\mathrm{safe}}$.\\
+\textbf{Does not work well:} low-contrast inputs; very large $N$ with small $R_{\mathrm{safe}}$; shooting without repulsion.
+
+\section{Task 2: Transition to ``Happy New Year!''}
+\subsection*{Task statement}
+\textbf{Input:} swarm at Task 1 formation and greeting text.\\
+\textbf{Goal:} move from handwritten name to greeting formation.\\
+\textbf{Output:} trajectories and visualization.
+
+\subsection{Overview}
+Start positions are \texttt{task1/outputs/target\_points.csv}. Greeting targets are extracted via \texttt{extract\_target\_points.py}. Transition trajectories are generated in \texttt{task2/transition.py} using BVP shooting or swarm IVP.
+
+\subsection{Mathematical model}
+Same second-order point-mass model as Task 1 with fixed targets $T_i$ for the greeting.
+\[
+x_i(0)=x_{i,0},\qquad x_i(T)=T_i.
+\]
+
+\subsection{Reproducibility (commands)}
+\begin{lstlisting}
+python3 task2/generate_greeting_image.py --out task2/inputs/greeting.png
+\end{lstlisting}
+\begin{lstlisting}
+python3 extract_target_points.py \
+  --image task2/inputs/greeting.png \
+  --n 100 --mode skeleton --min-target-spacing 5 \
+  --out-dir task2/outputs --debug-png
+\end{lstlisting}
+\begin{lstlisting}
+python3 task2/transition.py \
+  --start task1/outputs/target_points.csv \
+  --targets task2/outputs/target_points.csv \
+  --bg-target task2/inputs/greeting.png \
+  --model swarm --k-rep 200 --r-safe 12 \
+  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
+  --t-end 20 --steps 200 \
+  --collision-report --collision-threshold 12 \
+  --save-gif --save-traj-csv --save-traj-npy --save-traj-plot
+\end{lstlisting}
+
+\subsection{Test cases}
+\textbf{Works well:} same $N$ for start/target; swarm IVP with repulsion; skeleton extraction for greeting.\\
+\textbf{Does not work well:} mismatched $N$; shooting without repulsion in dense cases; very small $R_{\mathrm{safe}}$.
+
+\section{Task 3: Dynamic Tracking and Shape Preservation}
+\subsection*{Task statement}
+\textbf{Input:} swarm at Task 2 greeting and a video.\\
+\textbf{Goal:} track a moving object with shape preservation.\\
+\textbf{Output:} trajectories and visualization.
+
+\subsection{Overview}
+We segment the moving object, extract its contour per frame, sample $N$ boundary points, and maintain stable correspondence across frames. The implementation is in \texttt{task3/dynamic\_tracking.py}.
+
+\subsection{Contour targets}
+For each frame $k$, sample $N$ points at equal arc-length:
+\[
+T_i^{(k)} = C_k(s_i),\quad s_i=\frac{i}{N}L(C_k).
+\]
+We align consecutive frames via cyclic shift and orientation checks to keep point correspondence stable.
+
+\subsection{Controllers}
+\begin{itemize}
+  \item \textbf{Direct (kinematic)}: $x_i^{(k)} = T_i^{(k)}$ (zero tracking error).
+  \item \textbf{Dynamics (IVP RK4)}: second-order damped model integrated by RK4 to follow moving targets.
+\end{itemize}
+
+\subsection{Reproducibility (commands)}
+\begin{lstlisting}
+python3 task3/dynamic_tracking.py \
+  --tracking-mode contour \
+  --controller direct \
+  --video-step 1 \
+  --contour-upscale 3.0 --contour-smooth 9 \
+  --segmenter greenscreen \
+  --save-gif --save-traj-csv --save-traj-npy --gif-fps 30 \
+  --output-gif task3/outputs/task3_contour_direct_hi_with_video.gif
+\end{lstlisting}
+
+\subsection{Test cases}
+\textbf{Works well:} green-screen video; direct controller; higher contour upscaling.\\
+\textbf{Does not work well:} complex backgrounds; dynamics controller at high speed (lag); very small $N$.
+
+\section*{AI usage disclosure}
+This project was developed with AI assistance (ChatGPT) for explanation, implementation, and debugging support.
+
+\section*{Files included in the submission}
+\begin{itemize}
+  \item Code: \texttt{extract\_target\_points.py}, \texttt{task1/simulate\_drones.py}, \texttt{task2/transition.py}, \texttt{task3/dynamic\_tracking.py}
+  \item Inputs: \texttt{task1/inputs/name.png}, \texttt{task2/inputs/greeting.png}, \texttt{task3/video.mp4}
+  \item Outputs: \texttt{task1/outputs/}, \texttt{task2/outputs/}, \texttt{task3/outputs/}
+  \item Presentation (this file): \texttt{report/presentation.pdf}
+\end{itemize}
+
+\end{document}
