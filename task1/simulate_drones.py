@@ -3,6 +3,7 @@ import os
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.interpolate import UnivariateSpline, interp1d
 
 
 @dataclass(frozen=True)
@@ -271,6 +272,47 @@ def solve_swarm_ivp(
     return x_traj, y_traj
 
 
+def smooth_trajectory_spline(t: np.ndarray, x: np.ndarray, y: np.ndarray, *, s: float = None, k: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Smooth trajectory using spline interpolation.
+    
+    Args:
+        t: Time points (T,)
+        x: X coordinates (N, T)
+        y: Y coordinates (N, T)
+        s: Smoothing factor (None for no smoothing, smaller = smoother)
+        k: Spline degree (1=linear, 2=quadratic, 3=cubic)
+        
+    Returns:
+        Smoothed x, y trajectories (N, T)
+    """
+    t = np.asarray(t, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    
+    n, T = x.shape
+    if T < 2:
+        return x, y
+    
+    x_smooth = np.zeros_like(x)
+    y_smooth = np.zeros_like(y)
+    
+    for i in range(n):
+        if s is None:
+            # Interpolating spline (passes through all points)
+            spl_x = UnivariateSpline(t, x[i], k=min(k, T-1), s=0)
+            spl_y = UnivariateSpline(t, y[i], k=min(k, T-1), s=0)
+        else:
+            # Smoothing spline
+            spl_x = UnivariateSpline(t, x[i], k=min(k, T-1), s=s)
+            spl_y = UnivariateSpline(t, y[i], k=min(k, T-1), s=s)
+        
+        x_smooth[i] = spl_x(t)
+        y_smooth[i] = spl_y(t)
+    
+    return x_smooth, y_smooth
+
+
 def save_trajectories_csv(path: str, t: np.ndarray, x: np.ndarray, y: np.ndarray) -> None:
     n, tt = x.shape
     with open(path, "w", encoding="utf-8") as f:
@@ -371,6 +413,9 @@ def main() -> None:
     parser.add_argument("--save-traj-csv", action="store_true", help="Save drone_trajectories.csv")
     parser.add_argument("--save-traj-npy", action="store_true", help="Save drone_trajectories.npy (pickle)")
     parser.add_argument("--save-traj-plot", action="store_true", help="Save drone_trajectories.png")
+    parser.add_argument("--spline-smooth", action="store_true", help="Apply spline smoothing to trajectories")
+    parser.add_argument("--spline-smoothing-factor", type=float, default=None, help="Spline smoothing factor (None=interpolating, smaller=smoother)")
+    parser.add_argument("--spline-degree", type=int, default=3, choices=[1, 2, 3], help="Spline degree (1=linear, 2=quadratic, 3=cubic)")
 
     parser.add_argument("--save-gif", action="store_true", help="Save drone_motion.gif (requires pillow)")
     parser.add_argument("--gif-fps", type=int, default=20)
@@ -439,6 +484,17 @@ def main() -> None:
             v_max=float(args.v_max),
         )
 
+    # Apply spline smoothing if requested
+    if args.spline_smooth:
+        x_traj, y_traj = smooth_trajectory_spline(
+            t_eval,
+            x_traj,
+            y_traj,
+            s=args.spline_smoothing_factor,
+            k=args.spline_degree,
+        )
+        print("Applied spline smoothing to trajectories")
+    
     final_pos = np.column_stack([x_traj[:, -1], y_traj[:, -1]])
     dist = np.linalg.norm(final_pos - targets, axis=1)
     print(f"N drones: {n}")

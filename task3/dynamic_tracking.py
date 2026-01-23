@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from scipy.interpolate import UnivariateSpline
 
 
 def _ensure_mpl_configdir_writable() -> None:
@@ -188,6 +189,58 @@ def _best_circular_alignment(prev: np.ndarray, cand: np.ndarray) -> np.ndarray:
     return a1 if c1 <= c2 else a2
 
 
+def compute_optical_flow(
+    prev_gray: np.ndarray,
+    curr_gray: np.ndarray,
+    prev_points: np.ndarray,
+    *,
+    pyr_scale: float = 0.5,
+    levels: int = 3,
+    winsize: int = 15,
+    iterations: int = 3,
+) -> np.ndarray:
+    """
+    Compute optical flow using Farneback method and predict new point positions.
+    
+    Args:
+        prev_gray: Previous frame (grayscale)
+        curr_gray: Current frame (grayscale)
+        prev_points: Previous point positions (N, 2) in (x, y) format
+        pyr_scale: Pyramid scale
+        levels: Number of pyramid levels
+        winsize: Averaging window size
+        iterations: Number of iterations
+        
+    Returns:
+        Predicted point positions (N, 2) based on optical flow
+    """
+    if prev_gray.shape != curr_gray.shape:
+        return prev_points
+    
+    flow = cv2.calcOpticalFlowFarneback(
+        prev_gray,
+        curr_gray,
+        None,
+        pyr_scale=float(pyr_scale),
+        levels=int(levels),
+        winsize=int(winsize),
+        iterations=int(iterations),
+        poly_n=5,
+        poly_sigma=1.2,
+        flags=0,
+    )
+    
+    predicted = prev_points.copy().astype(np.float64)
+    for i, (x, y) in enumerate(prev_points):
+        x_int, y_int = int(round(x)), int(round(y))
+        if 0 <= y_int < flow.shape[0] and 0 <= x_int < flow.shape[1]:
+            fx, fy = flow[y_int, x_int]
+            predicted[i, 0] = x + fx
+            predicted[i, 1] = y + fy
+    
+    return predicted
+
+
 @dataclass(frozen=True)
 class DynParams:
     m: float = 1.0
@@ -218,6 +271,45 @@ def _rk4_step(pos: np.ndarray, vel: np.ndarray, *, target_pos: np.ndarray, dt: f
     pos2 = pos + (dt / 6.0) * (k1x + 2 * k2x + 2 * k3x + k4x)
     vel2 = vel + (dt / 6.0) * (k1v + 2 * k2v + 2 * k3v + k4v)
     return pos2, vel2
+
+
+def smooth_trajectory_spline(t: np.ndarray, x: np.ndarray, y: np.ndarray, *, s: float = None, k: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Smooth trajectory using spline interpolation.
+    
+    Args:
+        t: Time points (T,)
+        x: X coordinates (N, T)
+        y: Y coordinates (N, T)
+        s: Smoothing factor (None for no smoothing, smaller = smoother)
+        k: Spline degree (1=linear, 2=quadratic, 3=cubic)
+        
+    Returns:
+        Smoothed x, y trajectories (N, T)
+    """
+    t = np.asarray(t, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    
+    n, T = x.shape
+    if T < 2:
+        return x, y
+    
+    x_smooth = np.zeros_like(x)
+    y_smooth = np.zeros_like(y)
+    
+    for i in range(n):
+        if s is None:
+            spl_x = UnivariateSpline(t, x[i], k=min(k, T-1), s=0)
+            spl_y = UnivariateSpline(t, y[i], k=min(k, T-1), s=0)
+        else:
+            spl_x = UnivariateSpline(t, x[i], k=min(k, T-1), s=s)
+            spl_y = UnivariateSpline(t, y[i], k=min(k, T-1), s=s)
+        
+        x_smooth[i] = spl_x(t)
+        y_smooth[i] = spl_y(t)
+    
+    return x_smooth, y_smooth
 
 
 def save_trajectories_csv(path: str, t: np.ndarray, x: np.ndarray, y: np.ndarray) -> None:
@@ -258,10 +350,15 @@ def main() -> None:
     ap.add_argument("--canny2", type=int, default=150)
     ap.add_argument("--edge-dilate-iters", type=int, default=1)
 
-    ap.add_argument("--tracking-mode", choices=["contour"], default="contour")
+    ap.add_argument("--tracking-mode", choices=["contour", "optical_flow", "hybrid"], default="contour")
     ap.add_argument("--contour-upscale", type=float, default=3.0)
     ap.add_argument("--contour-smooth", type=int, default=9)
     ap.add_argument("--controller", choices=["direct", "dynamics"], default="direct")
+    ap.add_argument("--use-optical-flow", action="store_true", help="Use optical flow for target prediction (improves tracking)")
+    ap.add_argument("--optical-flow-pyr-scale", type=float, default=0.5, help="Pyramid scale for Farneback optical flow")
+    ap.add_argument("--optical-flow-levels", type=int, default=3, help="Number of pyramid levels for optical flow")
+    ap.add_argument("--optical-flow-winsize", type=int, default=15, help="Window size for optical flow")
+    ap.add_argument("--optical-flow-iterations", type=int, default=3, help="Number of iterations for optical flow")
 
     ap.add_argument("--m", type=float, default=1.0)
     ap.add_argument("--k-p", type=float, default=4.0)
@@ -276,6 +373,9 @@ def main() -> None:
     ap.add_argument("--gif-fps", type=int, default=30)
     ap.add_argument("--save-traj-csv", action="store_true")
     ap.add_argument("--save-traj-npy", action="store_true")
+    ap.add_argument("--spline-smooth", action="store_true", help="Apply spline smoothing to trajectories")
+    ap.add_argument("--spline-smoothing-factor", type=float, default=None, help="Spline smoothing factor (None=interpolating, smaller=smoother)")
+    ap.add_argument("--spline-degree", type=int, default=3, choices=[1, 2, 3], help="Spline degree (1=linear, 2=quadratic, 3=cubic)")
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
@@ -296,6 +396,7 @@ def main() -> None:
     dt = float(step) / max(1e-9, fps)
 
     frames_bgr: list[np.ndarray] = []
+    frames_gray: list[np.ndarray] = []
     masks_u8: list[np.ndarray] = []
     subtractor = None
     if args.segmenter == "mog2":
@@ -310,6 +411,7 @@ def main() -> None:
         if not ret:
             continue
         frames_bgr.append(fr)
+        frames_gray.append(cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY))
         if args.segmenter == "greenscreen":
             mask = segment_greenscreen(fr, ignore_bottom_frac=float(args.ignore_bottom_frac))
         elif args.segmenter == "mog2":
@@ -332,13 +434,36 @@ def main() -> None:
     if not frames_bgr:
         raise RuntimeError("No frames read from video.")
 
-    # Per-frame contour targets with stable correspondence.
     prev = None
     targets_track = []
-    for mask in masks_u8:
+    use_flow = bool(args.use_optical_flow) or args.tracking_mode in ["optical_flow", "hybrid"]
+    
+    for k, mask in enumerate(masks_u8):
         contour = _extract_contour_points_highres(mask, upscale=float(args.contour_upscale), smooth_window=int(args.contour_smooth))
+        
         if len(contour) == 0:
-            samp = prev.copy() if prev is not None else start.copy()
+            if prev is not None:
+                samp = prev.copy()
+            else:
+                samp = start.copy()
+            
+            if use_flow and k > 0 and prev is not None:
+                prev_gray = frames_gray[k - 1]
+                curr_gray = frames_gray[k]
+                predicted = compute_optical_flow(
+                    prev_gray,
+                    curr_gray,
+                    prev,
+                    pyr_scale=float(args.optical_flow_pyr_scale),
+                    levels=int(args.optical_flow_levels),
+                    winsize=int(args.optical_flow_winsize),
+                    iterations=int(args.optical_flow_iterations),
+                )
+                if args.tracking_mode == "optical_flow":
+                    samp = predicted
+                elif args.tracking_mode == "hybrid":
+                    samp = 0.7 * predicted + 0.3 * prev
+            
             targets_track.append(samp)
             prev = samp
             continue
@@ -348,13 +473,50 @@ def main() -> None:
         start_idx = int(np.argmin(contour[:, 1]))  # top-most point
         contour = np.roll(contour, -start_idx, axis=0)
         samp = _sample_points_along_closed_polyline_interp(contour, n)
-        if prev is not None:
-            samp = _best_circular_alignment(prev, samp)
+        
+        if use_flow and k > 0 and prev is not None:
+            prev_gray = frames_gray[k - 1]
+            curr_gray = frames_gray[k]
+            predicted = compute_optical_flow(
+                prev_gray,
+                curr_gray,
+                prev,
+                pyr_scale=float(args.optical_flow_pyr_scale),
+                levels=int(args.optical_flow_levels),
+                winsize=int(args.optical_flow_winsize),
+                iterations=int(args.optical_flow_iterations),
+            )
+            
+            if args.tracking_mode == "optical_flow":
+                samp = predicted
+            elif args.tracking_mode == "hybrid":
+                
+                def best_shift_with_flow(arr: np.ndarray) -> tuple[np.ndarray, float]:
+                    best_cost = float("inf")
+                    best_arr = arr
+                    for s in range(n):
+                        rolled = np.roll(arr, shift=s, axis=0)
+                        d_prev = prev - rolled
+                        d_flow = predicted - rolled
+                        cost = 0.3 * float(np.sum(d_prev * d_prev)) + 0.7 * float(np.sum(d_flow * d_flow))
+                        if cost < best_cost:
+                            best_cost = cost
+                            best_arr = rolled
+                    return best_arr, best_cost
+                
+                a1, c1 = best_shift_with_flow(samp)
+                a2, c2 = best_shift_with_flow(samp[::-1])
+                samp = a1 if c1 <= c2 else a2
+            else:  
+                samp = _best_circular_alignment(predicted, samp)
+        else:
+            if prev is not None:
+                samp = _best_circular_alignment(prev, samp)
+        
         targets_track.append(samp)
         prev = samp
     targets_track = np.stack(targets_track, axis=0)  # (K,N,2)
 
-    # Transition to first contour pose
     n_trans = max(1, int(round(float(args.transition_seconds) / max(1e-9, dt))))
     alphas = np.linspace(0.0, 1.0, n_trans, dtype=np.float64)
     start_pos = start.astype(np.float64)
@@ -364,7 +526,6 @@ def main() -> None:
     targets_all = np.concatenate([targets_trans, targets_track], axis=0)  # (T,N,2)
     T = targets_all.shape[0]
 
-    # Drone motion
     if args.controller == "direct":
         x_hist = targets_all[:, :, 0].T
         y_hist = targets_all[:, :, 1].T
@@ -384,8 +545,20 @@ def main() -> None:
     print(f"FPS: {fps:.3f}, step={step}, dt={dt:.4f}s, sampled_frames={len(frames_bgr)}")
     print(f"N drones: {n}, total steps: {T} (transition={n_trans}, tracking={len(frames_bgr)})")
     print(f"Segmenter: {args.segmenter}")
+    print(f"Tracking mode: {args.tracking_mode}, Optical flow: {use_flow}")
 
     t_eval = np.arange(T, dtype=np.float64) * float(dt)
+    
+    if args.spline_smooth:
+        x_hist, y_hist = smooth_trajectory_spline(
+            t_eval,
+            x_hist,
+            y_hist,
+            s=args.spline_smoothing_factor,
+            k=args.spline_degree,
+        )
+        print("Applied spline smoothing to trajectories")
+    
     if args.save_traj_csv:
         out_csv = os.path.join(out_dir, "task3_trajectories.csv")
         save_trajectories_csv(out_csv, t_eval, x_hist, y_hist)
@@ -401,6 +574,8 @@ def main() -> None:
             "params": {
                 "segmenter": str(args.segmenter),
                 "controller": str(args.controller),
+                "tracking_mode": str(args.tracking_mode),
+                "use_optical_flow": bool(use_flow),
                 "video_step": int(args.video_step),
                 "transition_seconds": float(args.transition_seconds),
                 "contour_upscale": float(args.contour_upscale),
@@ -410,7 +585,6 @@ def main() -> None:
         np.save(out_npy, payload, allow_pickle=True)
         print(f"Saved: {out_npy}")
 
-    # Render animation
     _ensure_mpl_configdir_writable()
     import matplotlib
 

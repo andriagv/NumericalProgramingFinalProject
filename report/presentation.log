@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2026.1.8)  23 JAN 2026 06:52
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2026.1.8)  23 JAN 2026 08:41
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -450,7 +450,7 @@ al/texlive/2025/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}]
 [2]
 
 [3]
-Overfull \hbox (32.32117pt too wide) in paragraph at lines 170--171
+Overfull \hbox (32.32117pt too wide) in paragraph at lines 194--195
 \OT1/cmr/m/n/10.95 main-tain sta-ble cor-re-spon-dence across frames. The im-pl
 e-men-ta-tion is in \OT1/cmtt/m/n/10.95 task3/dynamic[]tracking.py\OT1/cmr/m/n/
 10.95 . 
@@ -459,7 +459,7 @@ e-men-ta-tion is in \OT1/cmtt/m/n/10.95 task3/dynamic[]tracking.py\OT1/cmr/m/n/
 
 
 [4]
-Overfull \hbox (1.15622pt too wide) in paragraph at lines 215--216
+Overfull \hbox (1.15622pt too wide) in paragraph at lines 252--253
 []\OT1/cmr/m/n/10.95 Code: \OT1/cmtt/m/n/10.95 extract[]target[]points.py\OT1/c
 mr/m/n/10.95 , \OT1/cmtt/m/n/10.95 task1/simulate[]drones.py\OT1/cmr/m/n/10.95 
 , \OT1/cmtt/m/n/10.95 task2/transition.py\OT1/cmr/m/n/10.95 ,
@@ -467,19 +467,21 @@ mr/m/n/10.95 , \OT1/cmtt/m/n/10.95 task1/simulate[]drones.py\OT1/cmr/m/n/10.95
 
 
 
-[5] (./presentation.aux)
+[5]
+
+[6] (./presentation.aux)
  ***********
 LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-01-18>
  ***********
 Package rerunfilecheck Info: File `presentation.out' has not changed.
-(rerunfilecheck)             Checksum: 1793487C50FEA30E57A771199030A965;3508.
+(rerunfilecheck)             Checksum: C49833C79E7AC8811620053670E45597;4171.
  ) 
 Here is how much of TeX's memory you used:
- 12361 strings out of 473190
- 184284 string characters out of 5715801
- 819888 words of memory out of 5000000
- 35393 multiletter control sequences out of 15000+600000
+ 12393 strings out of 473190
+ 184728 string characters out of 5715801
+ 839888 words of memory out of 5000000
+ 35396 multiletter control sequences out of 15000+600000
  567226 words of font info for 68 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  75i,10n,79p,346b,1086s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -499,10 +501,10 @@ e/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive
 025/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/20
 25/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/local/texliv
 e/2025/texmf-dist/fonts/type1/public/cm-super/sfrm1095.pfb>
-Output written on presentation.pdf (5 pages, 203800 bytes).
+Output written on presentation.pdf (6 pages, 208213 bytes).
 PDF statistics:
- 277 PDF objects out of 1000 (max. 8388607)
- 235 compressed objects within 3 object streams
- 89 named destinations out of 1000 (max. 500000)
- 169 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 324 PDF objects out of 1000 (max. 8388607)
+ 281 compressed objects within 3 object streams
+ 118 named destinations out of 1000 (max. 500000)
+ 193 words of extra memory for PDF output out of 10000 (max. 10000000)
 

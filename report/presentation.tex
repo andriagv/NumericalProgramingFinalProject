@@ -82,6 +82,48 @@ We use \texttt{solve\_ivp} (RK45) for the coupled IVP. BVP shooting is available
 \dot{x}_i = v_i \cdot \min\left(1,\frac{v_{\max}}{\|v_i\|}\right).
 \]
 
+\subsubsection{RK45 (Runge-Kutta-Fehlberg) Butcher Table}
+RK45 uses an embedded pair of Runge-Kutta methods (order 4 and 5) for adaptive step-size control. The Butcher table for RK45 is:
+\[
+\begin{array}{c|cccccc}
+0 & & & & & & \\
+\frac{1}{4} & \frac{1}{4} & & & & & \\
+\frac{3}{8} & \frac{3}{32} & \frac{9}{32} & & & & \\
+\frac{12}{13} & \frac{1932}{2197} & -\frac{7200}{2197} & \frac{7296}{2197} & & & \\
+1 & \frac{439}{216} & -8 & \frac{3680}{513} & -\frac{845}{4104} & & \\
+\frac{1}{2} & -\frac{8}{27} & 2 & -\frac{3544}{2565} & \frac{1859}{4104} & -\frac{11}{40} & \\
+\hline
+ & \frac{25}{216} & 0 & \frac{1408}{2565} & \frac{2197}{4104} & -\frac{1}{5} & 0 \quad \text{(order 4)} \\
+ & \frac{16}{135} & 0 & \frac{6656}{12825} & \frac{28561}{56430} & -\frac{9}{50} & \frac{2}{55} \quad \text{(order 5)}
+\end{array}
+\]
+The method estimates local truncation error using the difference between 4th and 5th order approximations, enabling adaptive step-size selection.
+
+\subsubsection{Truncation Error Analysis}
+For RK45, the local truncation error is $O(h^5)$ for the 4th-order method and $O(h^6)$ for the 5th-order method. The error estimate is:
+\[
+\tau_n \approx \|y^{(5)}_n - y^{(4)}_n\|,
+\]
+where $y^{(4)}_n$ and $y^{(5)}_n$ are the 4th and 5th order approximations. The step size is adjusted to maintain:
+\[
+\tau_n \leq \max(\text{rtol} \cdot \|y_n\|, \text{atol}),
+\]
+with default $\text{rtol}=10^{-6}$ and $\text{atol}=10^{-9}$.
+
+\subsubsection{A-Stability}
+RK45 is not A-stable, but it is suitable for non-stiff problems. For stiff systems (e.g., high damping $k_d$), implicit methods (e.g., Radau IIA) would be preferred. In our implementation, the damping term $k_d v_i$ helps stabilize the system, and RK45 performs well for the chosen parameters.
+
+\subsection{Spline Smoothing}
+Trajectories can be smoothed using spline interpolation (optional). We use \texttt{UnivariateSpline} from SciPy:
+\[
+s(t) = \sum_{j=0}^{k} c_j B_{j,k}(t),
+\]
+where $B_{j,k}$ are B-spline basis functions of degree $k$ (typically $k=3$ for cubic splines). The smoothing factor $s$ controls the trade-off between smoothness and accuracy:
+\begin{itemize}
+  \item $s=0$: Interpolating spline (passes through all points)
+  \item $s>0$: Smoothing spline (minimizes $\int |s''(t)|^2 dt + s \sum_i (y_i - s(t_i))^2$)
+\end{itemize}
+
 \subsection{Validation}
 We validate final formation accuracy and safety:
 \begin{itemize}
@@ -102,12 +144,22 @@ python3 task1/simulate_drones.py \
   --k-p 2.0 --k-d 2.5 --v-max 1e9 \
   --t-end 12 --steps 120 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --spline-smooth --spline-degree 3 \
   --drone-size 21 --target-size 35 --initial-size 21
 \end{lstlisting}
 
 \subsection{Test cases}
 \textbf{Works well:} clear, high-contrast handwriting; moderate $N$ with spacing; tuned $R_{\mathrm{safe}}$.\\
 \textbf{Does not work well:} low-contrast inputs; very large $N$ with small $R_{\mathrm{safe}}$; shooting without repulsion.
+
+\subsection{Failure case example (Task 1)}
+Low-contrast input (too high threshold) can erase the handwritten text during binarization:
+\begin{lstlisting}
+python3 extract_target_points.py \
+  --image task1/inputs/name.png \
+  --n 200 --mode skeleton --threshold 220 \
+  --out-dir task1/outputs_bad --debug-png
+\end{lstlisting}
 
 \section{Task 2: Transition to ``Happy New Year!''}
 \subsection*{Task statement}
@@ -124,11 +176,14 @@ Same second-order point-mass model as Task 1 with fixed targets $T_i$ for the gr
 x_i(0)=x_{i,0},\qquad x_i(T)=T_i.
 \]
 
+\subsection{Spline Smoothing}
+As in Task 1, trajectories can be smoothed using spline interpolation to reduce noise and improve visual quality. The same \texttt{UnivariateSpline} approach is used with optional smoothing factor.
+
 \subsection{Reproducibility (commands)}
 \begin{lstlisting}
 python3 extract_target_points.py \
   --image task2/inputs/greeting.png \
-  --n 200 --mode skeleton --min-target-spacing 5 \
+  --n 200 --mode skeleton --min-target-spacing 10 \
   --out-dir task2/outputs --debug-png
 \end{lstlisting}
 \begin{lstlisting}
@@ -136,11 +191,12 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --model swarm --k-rep 160 --r-safe 50 \
-  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
-  --t-end 12 --steps 120 \
+  --model swarm --k-rep 220 --r-safe 14 \
+  --k-p 3.0 --k-d 3.5 --v-max 400 \
+  --t-end 20 --steps 200 \
   --collision-report --collision-threshold 50 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --spline-smooth --spline-degree 3 \
   --full-view --output-prefix full_transition
 \end{lstlisting}
 \begin{lstlisting}
@@ -148,17 +204,33 @@ python3 task2/transition.py \
   --start task1/outputs/target_points.csv \
   --targets task2/outputs/target_points.csv \
   --bg-target task2/inputs/greeting.png \
-  --model swarm --k-rep 160 --r-safe 50 \
-  --k-p 2.0 --k-d 2.5 --v-max 1e9 \
-  --t-end 12 --steps 120 \
+  --model swarm --k-rep 220 --r-safe 14 \
+  --k-p 3.0 --k-d 3.5 --v-max 400 \
+  --t-end 20 --steps 200 \
   --collision-report --collision-threshold 50 \
   --save-gif --save-traj-csv --save-traj-npy --save-traj-plot \
+  --spline-smooth --spline-degree 3 \
   --output-prefix transition
 \end{lstlisting}
 
 \subsection{Test cases}
 \textbf{Works well:} same $N$ for start/target; swarm IVP with repulsion; skeleton extraction for greeting.\\
 \textbf{Does not work well:} mismatched $N$; shooting without repulsion in dense cases; very small $R_{\mathrm{safe}}$.
+
+\subsection{Failure case example (Task 2)}
+Shooting without repulsion often causes collisions (dense targets):
+\begin{lstlisting}
+python3 task2/transition.py \
+  --start task1/outputs/target_points.csv \
+  --targets task2/outputs/target_points.csv \
+  --bg-target task2/inputs/greeting.png \
+  --model shooting \
+  --k-p 2.0 --k-d 0.5 \
+  --t-end 12 --steps 120 \
+  --collision-report --collision-threshold 50 \
+  --save-traj-plot \
+  --output-prefix transition_bad
+\end{lstlisting}
 
 \section{Task 3: Dynamic Tracking and Shape Preservation}
 \subsection*{Task statement}
@@ -167,14 +239,34 @@ python3 task2/transition.py \
 \textbf{Output:} trajectories and visualization.
 
 \subsection{Overview}
-We segment the moving object, extract its contour per frame, sample $N$ boundary points, and maintain stable correspondence across frames. The implementation is in \texttt{task3/dynamic\_tracking.py}.
+We segment the moving object, extract its contour per frame, sample $N$ boundary points, and maintain stable correspondence across frames. The implementation is in \texttt{task3/dynamic\_tracking.py}. We use \textbf{optical flow} to improve tracking accuracy and \textbf{splines} for trajectory smoothing.
+
+\subsection{Optical Flow}
+We use Farneback's dense optical flow method to predict point motion between frames:
+\[
+I(x,y,t) = I(x+\Delta x, y+\Delta y, t+\Delta t),
+\]
+where $(\Delta x, \Delta y)$ is the optical flow vector. The method solves:
+\[
+\nabla I \cdot \mathbf{v} + I_t = 0,
+\]
+where $\mathbf{v} = (\Delta x/\Delta t, \Delta y/\Delta t)$ is the velocity field. We use \texttt{cv2.calcOpticalFlowFarneback} with pyramid-based coarse-to-fine estimation. The predicted positions are:
+\[
+\hat{T}_i^{(k)} = T_i^{(k-1)} + \mathbf{v}(T_i^{(k-1)}),
+\]
+which guides contour alignment and improves tracking stability.
 
 \subsection{Contour targets}
 For each frame $k$, sample $N$ points at equal arc-length:
 \[
 T_i^{(k)} = C_k(s_i),\quad s_i=\frac{i}{N}L(C_k).
 \]
-We align consecutive frames via cyclic shift and orientation checks to keep point correspondence stable.
+We align consecutive frames via cyclic shift and orientation checks to keep point correspondence stable. When optical flow is enabled, we use flow predictions to improve alignment:
+\begin{itemize}
+  \item \textbf{contour mode}: Optical flow assists circular alignment
+  \item \textbf{optical\_flow mode}: Use flow predictions directly
+  \item \textbf{hybrid mode}: Blend flow predictions with contour sampling
+\end{itemize}
 
 \subsection{Controllers}
 \begin{itemize}
@@ -190,22 +282,40 @@ For each drone in dynamics mode:
 \end{align}
 with velocity saturation $v_i \leftarrow v_i \cdot \min\left(1,\frac{v_{\max}}{\|v_i\|}\right)$ before integration.
 
+\subsection{Spline Smoothing}
+As in Tasks 1--2, trajectories can be smoothed using spline interpolation to reduce noise and improve visual quality. The same \texttt{UnivariateSpline} approach is used with optional smoothing factor.
+
 \subsection{Reproducibility (commands)}
 \begin{lstlisting}
 python3 task3/dynamic_tracking.py \
-  --tracking-mode contour \
+  --tracking-mode hybrid \
+  --use-optical-flow \
   --controller direct \
   --video-step 1 \
   --contour-upscale 3.0 --contour-smooth 9 \
   --segmenter greenscreen \
+  --spline-smooth --spline-degree 3 \
   --save-gif --save-traj-csv --save-traj-npy --gif-fps 30 \
-  --output-gif task3/outputs/task3_contour_direct_hi_with_video.gif \
+  --output-gif task3/outputs/task3_optical_flow_hybrid.gif \
   --drone-size 13
 \end{lstlisting}
 
 \subsection{Test cases}
 \textbf{Works well:} green-screen video; direct controller; higher contour upscaling.\\
 \textbf{Does not work well:} complex backgrounds; dynamics controller at high speed (lag); very small $N$.
+
+\subsection{Failure case example (Task 3)}
+Using edge segmentation on a complex background produces noisy contours and unstable tracking:
+\begin{lstlisting}
+python3 task3/dynamic_tracking.py \
+  --tracking-mode contour \
+  --controller dynamics \
+  --video-step 3 \
+  --segmenter edges --canny1 30 --canny2 80 --edge-dilate-iters 2 \
+  --save-gif --gif-fps 30 \
+  --output-gif task3/outputs/task3_bad_edges.gif \
+  --drone-size 13
+\end{lstlisting}
 
 \section*{AI usage disclosure}
 This project was developed with AI assistance (ChatGPT) for explanation, implementation, and debugging support.

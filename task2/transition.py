@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from scipy.interpolate import UnivariateSpline
 
 
 @dataclass(frozen=True)
@@ -51,7 +52,7 @@ def _repulsive_force(positions: np.ndarray, k_rep: float, r_safe: float) -> np.n
     r = float(r_safe)
     if k <= 0 or r <= 0:
         return np.zeros_like(positions, dtype=np.float64)
-    diff = positions[:, None, :] - positions[None, :, :]  # (N,N,2)
+    diff = positions[:, None, :] - positions[None, :, :]  
     dist2 = np.sum(diff * diff, axis=2)
     np.fill_diagonal(dist2, np.inf)
     mask = dist2 < r * r
@@ -74,8 +75,8 @@ def drone_ode_single_second_order(t: float, state: np.ndarray, params: Params, t
 def solve_bvp_shooting_all(
     *,
     t_eval: np.ndarray,
-    start_positions: np.ndarray,  # (N,2)
-    targets: np.ndarray,  # (N,2)
+    start_positions: np.ndarray,  
+    targets: np.ndarray,  
     params: Params,
     rtol: float,
     atol: float,
@@ -197,6 +198,45 @@ def solve_swarm_ivp(
     return x_traj, y_traj
 
 
+def smooth_trajectory_spline(t: np.ndarray, x: np.ndarray, y: np.ndarray, *, s: float = None, k: int = 3) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Smooth trajectory using spline interpolation.
+    
+    Args:
+        t: Time points (T,)
+        x: X coordinates (N, T)
+        y: Y coordinates (N, T)
+        s: Smoothing factor (None for no smoothing, smaller = smoother)
+        k: Spline degree (1=linear, 2=quadratic, 3=cubic)
+        
+    Returns:
+        Smoothed x, y trajectories (N, T)
+    """
+    t = np.asarray(t, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    
+    n, T = x.shape
+    if T < 2:
+        return x, y
+    
+    x_smooth = np.zeros_like(x)
+    y_smooth = np.zeros_like(y)
+    
+    for i in range(n):
+        if s is None:
+            spl_x = UnivariateSpline(t, x[i], k=min(k, T-1), s=0)
+            spl_y = UnivariateSpline(t, y[i], k=min(k, T-1), s=0)
+        else:
+            spl_x = UnivariateSpline(t, x[i], k=min(k, T-1), s=s)
+            spl_y = UnivariateSpline(t, y[i], k=min(k, T-1), s=s)
+        
+        x_smooth[i] = spl_x(t)
+        y_smooth[i] = spl_y(t)
+    
+    return x_smooth, y_smooth
+
+
 def save_trajectories_csv(path: str, t: np.ndarray, x: np.ndarray, y: np.ndarray) -> None:
     n, tt = x.shape
     with open(path, "w", encoding="utf-8") as f:
@@ -283,6 +323,9 @@ def main() -> None:
     ap.add_argument("--save-traj-npy", action="store_true")
     ap.add_argument("--save-traj-plot", action="store_true")
     ap.add_argument("--save-gif", action="store_true")
+    ap.add_argument("--spline-smooth", action="store_true", help="Apply spline smoothing to trajectories")
+    ap.add_argument("--spline-smoothing-factor", type=float, default=None, help="Spline smoothing factor (None=interpolating, smaller=smoother)")
+    ap.add_argument("--spline-degree", type=int, default=3, choices=[1, 2, 3], help="Spline degree (1=linear, 2=quadratic, 3=cubic)")
     ap.add_argument("--gif-fps", type=int, default=20)
     ap.add_argument("--gif-interval-ms", type=int, default=50)
     ap.add_argument("--hold-last", type=int, default=0)
@@ -309,7 +352,6 @@ def main() -> None:
 
     assignment = None
     if not args.no_assign:
-        # Hungarian assignment minimizes total travel distance and reduces crossings.
         diff = start[:, None, :] - targets[None, :, :]
         cost = np.linalg.norm(diff, axis=2)
         row_ind, col_ind = linear_sum_assignment(cost)
@@ -355,6 +397,16 @@ def main() -> None:
             final_velocity_weight=float(args.bvp_final_velocity_weight),
         )
 
+    if args.spline_smooth:
+        x_traj, y_traj = smooth_trajectory_spline(
+            t_eval,
+            x_traj,
+            y_traj,
+            s=args.spline_smoothing_factor,
+            k=args.spline_degree,
+        )
+        print("Applied spline smoothing to trajectories")
+    
     final_pos = np.column_stack([x_traj[:, -1], y_traj[:, -1]])
     dist = np.linalg.norm(final_pos - targets, axis=1)
     print(f"N drones: {len(targets)}")
